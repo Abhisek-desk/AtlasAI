@@ -1,7 +1,6 @@
 import express from "express";
 import dotenv from "dotenv";
 import proxy from "express-http-proxy";
-import router from "../services/auth/routes/auth.routes.js";
 import cors from "cors";
 import cookieParser from "cookie-parser"
 dotenv.config();
@@ -16,9 +15,12 @@ app.use(cors({
 
 app.use(cookieParser());
 
-app.use("/auth",proxy(process.env.AUTH_SERVICE))
-app.use("/",router)
-
+app.use(
+  "/auth",
+  proxy(process.env.AUTH_SERVICE, {
+    proxyReqPathResolver: (req) => `/auth${req.url}`,
+  })
+);
 app.get("/", (req, res) => {
   res.json({ message: "Gateway is running" });
 });
