@@ -2,6 +2,8 @@ import express from "express";
 import dotenv from "dotenv";
 import connectDB from "./config/db.js";
 import authRoutes from "./routes/auth.routes.js";
+import router from "./routes/chat.routes.js";
+import protect from "../../gateway/middleware/auth.middleware.js";
 dotenv.config();
 
 const port = process.env.PORT;
@@ -9,6 +11,7 @@ const port = process.env.PORT;
 const app = express();
 app.use(express.json());
 app.use("/auth", authRoutes);
+app.use("/chat", protect,router);
 
 app.get("/", (req, res) => {
   res.json({ message: "Auth service is running" });
