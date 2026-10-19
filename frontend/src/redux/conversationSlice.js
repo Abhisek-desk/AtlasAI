@@ -5,20 +5,36 @@ const conversationSlice = createSlice({
 
   initialState: {
     conversations: [],
-    activeConversation: null,
+    selectedConversation: null,
   },
 
   reducers: {
     setConversations: (state, action) => {
-      state.conversations = action.payload;
+      state.conversations = Array.isArray(action.payload) ? action.payload : [];
     },
 
     addConversation: (state, action) => {
-      state.conversations.unshift(action.payload);
+      if (action.payload) {
+        state.conversations.unshift(action.payload);
+        state.selectedConversation = action.payload;
+      }
+    },
+
+    selectConversation: (state, action) => {
+      state.selectedConversation = action.payload;
+    },
+
+    clearSelectedConversation: (state) => {
+      state.selectedConversation = null;
     },
   },
 });
 
-export const { setConversations, addConversation } = conversationSlice.actions;
+export const {
+  setConversations,
+  addConversation,
+  selectConversation,
+  clearSelectedConversation,
+} = conversationSlice.actions;
 
 export default conversationSlice.reducer;

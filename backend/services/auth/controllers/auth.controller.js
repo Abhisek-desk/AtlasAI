@@ -11,71 +11,114 @@ export const login = async (req, res) => {
 
     if (!token) {
       return res.status(400).json({
+        success: false,
         message: "Firebase ID token is required",
       });
     }
 
-    // Verify the Firebase ID token.
-    const decoded = await getAuth(app).verifyIdToken(token);
+    // 1. Verify the Firebase ID token
+    let decoded;
 
-    // Find an existing user.
+    try {
+      decoded = await getAuth(app).verifyIdToken(token);
+    } catch (error) {
+      console.error("Firebase token verification failed:", error.message);
+
+      return res.status(401).json({
+        success: false,
+        message: "Invalid or expired Firebase token",
+      });
+    }
+
+    // 2. Find or create the user
     let user = await User.findOne({
       firebaseUID: decoded.uid,
     });
 
-    // Create a new user if one doesn't exist.
     if (!user) {
       user = await User.create({
         firebaseUID: decoded.uid,
-        name: decoded.name,
-        email: decoded.email,
-        avatar: decoded.picture,
+        name: decoded.name || "",
+        email: decoded.email || "",
+        avatar: decoded.picture || "",
       });
     }
 
-    // Create a session ID.
+    // 3. Create a Redis session
     const sessionId = crypto.randomUUID();
+
+    const sessionData = {
+      userId: user._id.toString(),
+      name: user.name,
+      email: user.email,
+      avatar: user.avatar,
+    };
+
     await redis.set(
       `session:${sessionId}`,
-      JSON.stringify({
-        userId: user._id.toString(),
-        name: user.name,
-        email: user.email,
-        avatar: user.avatar,
-      }),
+      JSON.stringify(sessionData),
       "EX",
       7 * 24 * 60 * 60,
-    ); // Expires in 7 days
+    );
 
+    // 4. Set the session cookie
     res.cookie("session", sessionId, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
+      sameSite: "lax",
       maxAge: 7 * 24 * 60 * 60 * 1000,
       path: "/",
     });
 
+    // 5. Return user data
     return res.status(200).json({
+      success: true,
       message: "Login successful",
-      user,
+      user: {
+        id: user._id,
+        firebaseUID: user.firebaseUID,
+        name: user.name,
+        email: user.email,
+        avatar: user.avatar,
+      },
     });
   } catch (error) {
-    console.error("Login error:", error);
+    console.error("Login controller error:", error);
 
-    return res.status(401).json({
-      message: "Authentication failed",
+    return res.status(500).json({
+      success: false,
+      message: "Internal server error during login",
     });
   }
 };
 
-export const logout=async (req,res)=>{
-  try{
-    const sessionId=req.cookies?.session
-    await redis.del(`session:${sessionId}`);
+export const logout = async (req, res) => {
+  try {
+    const sessionId = req.cookies?.session;
 
-    res.clearCookie("session")
-    return res.status(200).json({message:"logout successfully"})
-  }catch(error){
-    return res.status(500).json({message:`logout error ${error}`})
+    // Remove the Redis session if one exists
+    if (sessionId) {
+      await redis.del(`session:${sessionId}`);
+    }
+
+    // Clear the browser cookie using matching options
+    res.clearCookie("session", {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "lax",
+      path: "/",
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Logged out successfully",
+    });
+  } catch (error) {
+    console.error("Logout controller error:", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Logout failed",
+    });
   }
-}
+};
