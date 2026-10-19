@@ -1,7 +1,7 @@
 
 const ChatArea = () => {
   return (
-    <div>ChatArea</div>
+    <div className="flex-1 flex flex-col">ChatArea</div>
   )
 }
 

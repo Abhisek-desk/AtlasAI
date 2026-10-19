@@ -10,7 +10,7 @@ import {
 const router = express.Router();
 
 router.post("/create-conversation", createConversation);
-router.get("/create-conversations", getConversations);
+router.get("/get-conversations", getConversations);
 router.put("/update-conversation", updateConversation);
 router.post("/save-message", saveMessage);
 router.get("/messages/:conversationId", getMessages);
