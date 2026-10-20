@@ -51,7 +51,7 @@ const Home = () => {
     <div className="flex h-dvh w-full overflow-hidden bg-[#0d0f14] text-white">
       <Sidebar />
 
-      <div className="flex min-w-0 flex-1 overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
         <ChatArea />
         <Artifact />
       </div>

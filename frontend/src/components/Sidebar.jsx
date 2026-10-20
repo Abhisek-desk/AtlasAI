@@ -92,11 +92,11 @@ const Sidebar = () => {
 
           {!collapsed && (
             <>
-              <span className="flex-1 text-[16px] font-semibold tracking-tight text-[#F1F5F9]">
+              <span className="hidden flex-1 text-[16px] font-semibold tracking-tight text-[#F1F5F9] md:block">
                 Atlas<span className="text-[#A78BFA]">AI</span>
               </span>
 
-              <span className="rounded-md border border-violet-400/20 bg-violet-400/10 px-2 py-1 text-[10px] font-medium text-violet-300">
+              <span className="hidden rounded-md border border-violet-400/20 bg-violet-400/10 px-2 py-1 text-[10px] font-medium text-violet-300 md:inline">
                 FREE
               </span>
 
@@ -124,14 +124,14 @@ const Sidebar = () => {
           >
             <SquarePen size={18} className="shrink-0" />
 
-            {!collapsed && <span>New Chat</span>}
+            {!collapsed && <span className="hidden md:inline">New Chat</span>}
           </button>
         </div>
 
         {/* Recent Chats */}
         <div className="mt-7 min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3">
           {!collapsed && (
-            <p className="mb-3 px-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#64748B]">
+            <p className="mb-3 hidden px-2 md:block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#64748B]">
               Recent
             </p>
           )}
@@ -160,14 +160,14 @@ const Sidebar = () => {
                     />
 
                     {!collapsed && (
-                      <span className="truncate">
+                      <span className="hidden truncate md:block">
                         {conversation.title || "New Chat"}
                       </span>
                     )}
                   </button>
                 ))
               : !collapsed && (
-                  <p className="px-3 py-4 text-center text-sm leading-6 text-[#64748B]">
+                  <p className="hidden px-3 py-4 md:block text-center text-sm leading-6 text-[#64748B]">
                     No recent conversations
                     <span className="mt-1 block text-xs text-[#475569]">
                       Start a new chat to begin
@@ -203,7 +203,7 @@ const Sidebar = () => {
             </div>
 
             {!collapsed && (
-              <div className="min-w-0 flex-1">
+              <div className="hidden min-w-0 flex-1 md:block">
                 <p className="truncate text-sm font-medium text-[#F1F5F9]">
                   {userName}
                 </p>
@@ -215,7 +215,7 @@ const Sidebar = () => {
             )}
 
             {!collapsed && (
-              <>
+              <div className="hidden md:flex items-center gap-1">
                 <button
                   type="button"
                   aria-label="Credits"
@@ -237,7 +237,7 @@ const Sidebar = () => {
                 >
                   <LogOut size={17} />
                 </button>
-              </>
+              </div>
             )}
           </div>
         </div>

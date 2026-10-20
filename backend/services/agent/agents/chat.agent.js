@@ -1,20 +1,49 @@
+import {
+  AIMessage,
+  HumanMessage,
+  SystemMessage,
+} from "@langchain/core/messages";
+
 import { getModel } from "../config/llmModels.js";
+import { getMemory } from "../config/memory.js";
 
 export const chatAgent = async (state) => {
-  const llm =await getModel("chat");
+  const llm = await getModel("chat");
+
+  const history = await getMemory(state.conversationId);
+
   const systemPrompt =
-    "You are Atlas AI, a large language model trained by OpenAI. You are a helpful assistant that can answer questions and provide information on a wide range of topics. Please provide a detailed and accurate response to the following prompt: ";
-  const response = await llm.invoke([
-    {
-      "role": "system",
-      "content": systemPrompt,
-    },{
-        "role":"human",
-        "content":state.prompt
+    "You are AtlasAI, a helpful assistant. Provide accurate, clear, and useful answers.";
+
+  const messages = [
+    new SystemMessage(systemPrompt),
+  ];
+
+  // The current prompt is already stored in history by the controller.
+  // Convert the saved messages into LangChain message objects.
+  for (const msg of history) {
+    if (msg.role === "user") {
+      messages.push(new HumanMessage(msg.content));
+    } else if (msg.role === "assistant") {
+      messages.push(new AIMessage(msg.content));
     }
-  ]);
+  }
+
+  // Add the current prompt only if it isn't already the last user message.
+  const lastMessage = history[history.length - 1];
+
+  if (
+    !lastMessage ||
+    lastMessage.role !== "user" ||
+    lastMessage.content !== state.prompt
+  ) {
+    messages.push(new HumanMessage(state.prompt));
+  }
+
+  const response = await llm.invoke(messages);
+
   return {
     ...state,
-    aiResponse:response.content
+    aiResponse: response.content,
   };
 };

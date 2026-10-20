@@ -29,8 +29,8 @@ export const getConversations = async (req, res) => {
 
 export const updateConversation = async (req, res) => {
   try {
-    const {id,title}=req.body
-    const conversations = await Conversation.findByIdAndUpdate(id,{title})
+    const { id, title } = req.body;
+    const conversations = await Conversation.findByIdAndUpdate(id, { title });
     return res.status(200).json({ conversations });
   } catch (error) {
     console.error("Error updating conversation:", error);
@@ -41,27 +41,44 @@ export const updateConversation = async (req, res) => {
 export const saveMessage = async (req, res) => {
   try {
     const { conversationId, role, content } = req.body;
+
+    if (!conversationId || !role || !content) {
+      return res.status(400).json({
+        message: "conversationId, role, and content are required",
+      });
+    }
+
+    const conversation = await Conversation.findById(conversationId);
+
+    if (!conversation) {
+      return res.status(404).json({
+        message: "Conversation not found",
+      });
+    }
+
     const message = await Message.create({
       conversationId,
-      content,
       role,
+      content,
     });
+
+    return res.status(201).json({ message });
   } catch (error) {
-    onsole.error("Error saving conversation:", error);
-    return res.status(500).json({ error: "Failed to save message" });
+    console.error("Error saving message:", error.message);
+    return res.status(500).json({
+      message: "Failed to save message",
+      error: error.message,
+    });
   }
 };
 
 export const getMessages = async (req, res) => {
   try {
     const messages = await Message.find({
-      conversationId:req.params.conversationId,
-    }).sort({
-      createdAt: -1,
-    });
-    return res.status(200).json(messages)
+      conversationId: req.params.conversationId,
+    }).sort({ createdAt: 1 });
+    return res.status(200).json(messages);
   } catch (error) {
-      return res.status(500).json({ message: `get message error ${error}` });
+    return res.status(500).json({ message: `get message error ${error}` });
   }
 };
-

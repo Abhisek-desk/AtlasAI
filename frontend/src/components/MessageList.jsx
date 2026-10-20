@@ -1,12 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  Bot,
-  User,
-  Copy,
-  Check,
-  Sparkles,
-  AlertCircle,
-} from "lucide-react";
+import { Bot, User, Copy, Check, AlertCircle } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 const MessageList = ({
   messages = [],
@@ -25,16 +20,22 @@ const MessageList = ({
     });
   }, [messages, sending]);
 
-  const copyMessage = async (message) => {
+  const copyMessage = async (message, messageId) => {
     try {
-      await navigator.clipboard.writeText(message.content || "");
-      setCopiedId(message._id);
+      const content =
+        typeof message.content === "string"
+          ? message.content
+          : JSON.stringify(message.content ?? "");
+
+      await navigator.clipboard.writeText(content);
+
+      setCopiedId(messageId);
 
       setTimeout(() => {
         setCopiedId(null);
       }, 1500);
-    } catch (error) {
-      console.error("Copy message error:", error);
+    } catch (err) {
+      console.error("Copy message error:", err);
     }
   };
 
@@ -50,51 +51,41 @@ const MessageList = ({
     <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-6 sm:px-5 lg:px-8">
       {messages.length === 0 ? (
         <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col items-center justify-center px-2 py-8 text-center sm:px-4 sm:py-12">
-          <div className="mb-6 flex h-16 w-16 shrink-0 items-center justify-center rounded-2xl border border-white/10 bg-[#171a22]">
-            <Sparkles size={30} className="text-white" />
-          </div>
-
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
-            What can I help you with?
+            AtlasAI
           </h1>
 
-          <p className="mt-3 max-w-md text-sm leading-6 text-gray-400">
-            Ask a question, explore an idea, or start working on something
-            new with AtlasAI.
+          <h2 className="mt-4 text-base font-semibold text-gray-200 sm:text-lg">
+            How can I help you?
+          </h2>
+
+          <p className="mt-3 max-w-md text-sm leading-6 text-gray-500">
+            Ask me anything — code, ideas, explanations, or just a quick
+            question.
           </p>
 
           {error && (
-            <p className="mt-4 max-w-md text-sm text-red-400">{error}</p>
+            <div className="mt-4 flex items-start gap-2 text-left text-sm text-red-400">
+              <AlertCircle size={17} className="mt-0.5 shrink-0" />
+              <p>{error}</p>
+            </div>
           )}
 
-          <div className="mt-8 grid w-full max-w-2xl grid-cols-1 gap-3 sm:grid-cols-2">
-            <button
-              type="button"
-              onClick={onNewChat}
-              className="rounded-xl border border-white/10 bg-[#14171e] p-4 text-left transition hover:border-white/20 hover:bg-[#191d26]"
-            >
-              <p className="text-sm font-medium text-gray-200">
-                Brainstorm ideas
-              </p>
-
-              <p className="mt-1 text-xs leading-5 text-gray-500">
-                Find fresh ideas for your next project.
-              </p>
-            </button>
-
-            <button
-              type="button"
-              onClick={onNewChat}
-              className="rounded-xl border border-white/10 bg-[#14171e] p-4 text-left transition hover:border-white/20 hover:bg-[#191d26]"
-            >
-              <p className="text-sm font-medium text-gray-200">
-                Learn something new
-              </p>
-
-              <p className="mt-1 text-xs leading-5 text-gray-500">
-                Explore a topic and understand how it works.
-              </p>
-            </button>
+          <div className="mt-7 flex w-full max-w-2xl flex-wrap justify-center gap-2">
+            {[
+              "Write a Netflix clone",
+              "Explain Redis",
+              "Build a dashboard",
+            ].map((suggestion) => (
+              <button
+                key={suggestion}
+                type="button"
+                onClick={() => onNewChat?.(suggestion)}
+                className="rounded-xl border border-white/5 bg-[#171a22] px-4 py-3 text-xs text-gray-300 transition hover:bg-[#20232d] sm:text-sm"
+              >
+                {suggestion}
+              </button>
+            ))}
           </div>
         </div>
       ) : (
@@ -102,6 +93,11 @@ const MessageList = ({
           {messages.map((message, index) => {
             const isUser = message.role === "user";
             const messageId = message._id || message.id || index;
+
+            const content =
+              typeof message.content === "string"
+                ? message.content
+                : JSON.stringify(message.content ?? "");
 
             return (
               <article
@@ -130,24 +126,122 @@ const MessageList = ({
                   </div>
 
                   <div
-                    className={`inline-block whitespace-pre-wrap break-words text-left text-sm leading-7 ${
+                    className={`break-words text-sm leading-7 ${
                       isUser
-                        ? "rounded-2xl rounded-tr-sm bg-[#202531] px-4 py-3 text-gray-100"
+                        ? "inline-block rounded-2xl rounded-tr-sm bg-[#202531] px-4 py-3 text-left text-gray-100"
                         : "text-gray-200"
                     }`}
                   >
-                    {message.content}
+                    {isUser ? (
+                      <div className="whitespace-pre-wrap">{content}</div>
+                    ) : (
+                      <div className="markdown-content max-w-none">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            p: ({ children }) => (
+                              <p className="mb-3 last:mb-0">{children}</p>
+                            ),
+                            h1: ({ children }) => (
+                              <h1 className="mb-3 mt-5 text-2xl font-bold text-white">
+                                {children}
+                              </h1>
+                            ),
+                            h2: ({ children }) => (
+                              <h2 className="mb-3 mt-4 text-xl font-bold text-white">
+                                {children}
+                              </h2>
+                            ),
+                            h3: ({ children }) => (
+                              <h3 className="mb-2 mt-4 text-lg font-semibold text-white">
+                                {children}
+                              </h3>
+                            ),
+                            ul: ({ children }) => (
+                              <ul className="mb-3 list-disc space-y-1 pl-6">
+                                {children}
+                              </ul>
+                            ),
+                            ol: ({ children }) => (
+                              <ol className="mb-3 list-decimal space-y-1 pl-6">
+                                {children}
+                              </ol>
+                            ),
+                            li: ({ children }) => <li>{children}</li>,
+                            blockquote: ({ children }) => (
+                              <blockquote className="my-3 border-l-4 border-indigo-400 pl-4 text-gray-400">
+                                {children}
+                              </blockquote>
+                            ),
+                            a: ({ href, children }) => (
+                              <a
+                                href={href}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="text-indigo-400 underline hover:text-indigo-300"
+                              >
+                                {children}
+                              </a>
+                            ),
+                            pre: ({ children }) => (
+                              <pre className="my-3 overflow-x-auto rounded-xl border border-white/10 bg-[#111318] p-4 text-sm leading-6">
+                                {children}
+                              </pre>
+                            ),
+                            code: ({ className, children, ...props }) => {
+                              const isBlock = Boolean(className);
+
+                              return isBlock ? (
+                                <code
+                                  className={`${className} font-mono`}
+                                  {...props}
+                                >
+                                  {children}
+                                </code>
+                              ) : (
+                                <code className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-indigo-200">
+                                  {children}
+                                </code>
+                              );
+                            },
+                            table: ({ children }) => (
+                              <div className="my-4 overflow-x-auto">
+                                <table className="w-full border-collapse text-left text-sm">
+                                  {children}
+                                </table>
+                              </div>
+                            ),
+                            th: ({ children }) => (
+                              <th className="border border-white/10 bg-white/5 px-3 py-2 font-semibold text-white">
+                                {children}
+                              </th>
+                            ),
+                            td: ({ children }) => (
+                              <td className="border border-white/10 px-3 py-2">
+                                {children}
+                              </td>
+                            ),
+                            hr: () => (
+                              <hr className="my-4 border-white/10" />
+                            ),
+                          }}
+                        >
+                          {content}
+                        </ReactMarkdown>
+                      </div>
+                    )}
                   </div>
 
                   {!isUser && (
                     <div className="mt-2 flex items-center gap-1 opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100">
                       <button
                         type="button"
-                        onClick={() => copyMessage(message)}
+                        onClick={() => copyMessage(message, messageId)}
                         title="Copy message"
+                        aria-label="Copy assistant response"
                         className="rounded-lg p-2 text-gray-500 hover:bg-white/10 hover:text-white"
                       >
-                        {copiedId === message._id ? (
+                        {copiedId === messageId ? (
                           <Check size={15} />
                         ) : (
                           <Copy size={15} />
@@ -166,7 +260,11 @@ const MessageList = ({
                 <Bot size={19} />
               </div>
 
-              <div className="flex items-center gap-1.5 pt-3">
+              <div
+                className="flex items-center gap-1.5 pt-3"
+                role="status"
+                aria-label="AtlasAI is responding"
+              >
                 <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:-0.3s]" />
                 <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:-0.15s]" />
                 <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400" />

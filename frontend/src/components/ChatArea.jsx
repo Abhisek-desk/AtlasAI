@@ -1,3 +1,4 @@
+
 import { useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 
@@ -5,7 +6,6 @@ import ChatInput from "./ChatInput";
 import MessageList from "./MessageList";
 import Nav from "./Nav";
 
-import api from "../../utils/axios.js";
 import { createConversation } from "../features/createConversation.js";
 import getMessages from "../features/getMessages.js";
 
@@ -16,7 +16,6 @@ import {
 
 import {
   setMessages,
-  addMessage,
   clearMessages,
   setMessageLoading,
   setMessageError,
@@ -83,7 +82,7 @@ const ChatArea = () => {
 
       const conversation = await createConversation();
 
-      if (!conversation) {
+      if (!conversation?._id) {
         dispatch(setMessageError("Failed to create a new conversation."));
         return;
       }
@@ -93,68 +92,6 @@ const ChatArea = () => {
     } catch (err) {
       console.error("Create conversation error:", err);
       dispatch(setMessageError("Failed to create a new conversation."));
-    }
-  };
-
-  const handleSendMessage = async ({ prompt, conversationId }) => {
-    const text = prompt?.trim();
-    if (!text || sending) return;
-
-    let activeConversationId =
-      conversationId || selectedConversation?._id;
-
-    try {
-      setSending(true);
-      dispatch(setMessageError(null));
-
-      if (!activeConversationId) {
-        const conversation = await createConversation();
-
-        if (!conversation) {
-          dispatch(setMessageError("Failed to create a conversation."));
-          return;
-        }
-
-        dispatch(addConversation(conversation));
-        dispatch(selectConversation(conversation));
-
-        activeConversationId = conversation._id;
-      }
-
-      dispatch(
-        addMessage({
-          role: "user",
-          content: text,
-        })
-      );
-
-      const { data } = await api.post("/api/agent/chat", {
-        prompt: text,
-        conversationId: activeConversationId,
-      });
-
-      const response =
-        typeof data === "string"
-          ? data
-          : data?.aiResponse || data?.reply || data?.message || data?.content;
-
-      if (response) {
-        dispatch(
-          addMessage({
-            role: "assistant",
-            content: response,
-          })
-        );
-      }
-    } catch (err) {
-      console.error(
-        "Send message error:",
-        err.response?.data || err.message
-      );
-
-      dispatch(setMessageError("Failed to send message."));
-    } finally {
-      setSending(false);
     }
   };
 
@@ -171,9 +108,10 @@ const ChatArea = () => {
       />
 
       <ChatInput
-        onSend={handleSendMessage}
         conversationId={selectedConversation?._id}
         disabled={loading || sending}
+        sending={sending}
+        setSending={setSending}
       />
     </main>
   );

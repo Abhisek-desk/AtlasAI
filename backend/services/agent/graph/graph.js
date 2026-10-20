@@ -19,7 +19,7 @@ workflow.addNode("ppt",pptAgent);
 workflow.addNode("vision",visionAgent);
 
 workflow.addEdge("__start__","router");
-workflow.addConditionalEdges("router",()=>{
+workflow.addConditionalEdges("router",(state)=>{
     switch (state.agent) {
         case "chat":
             return "chat";
@@ -54,3 +54,4 @@ workflow.addEdge("vision","__end__");
 
 
 export const graph=workflow.compile();
+
