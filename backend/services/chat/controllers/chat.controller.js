@@ -48,26 +48,32 @@ export const saveMessage = async (req, res) => {
       });
     }
 
-    const conversation = await Conversation.findById(conversationId);
-
-    if (!conversation) {
-      return res.status(404).json({
-        message: "Conversation not found",
-      });
-    }
-
     const message = await Message.create({
       conversationId,
       role,
       content,
     });
 
+    const conversation = await Conversation.findById(conversationId);
+
+    if (conversation) {
+      if (
+        role === "user" &&
+        (!conversation.title || conversation.title === "New Chat")
+      ) {
+        conversation.title = content.trim().slice(0, 40);
+      }
+
+      conversation.updatedAt = new Date();
+      await conversation.save();
+    }
+
     return res.status(201).json({ message });
   } catch (error) {
-    console.error("Error saving message:", error.message);
+    console.error("Error saving message:", error);
+
     return res.status(500).json({
       message: "Failed to save message",
-      error: error.message,
     });
   }
 };

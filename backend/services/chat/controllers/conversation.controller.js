@@ -46,16 +46,16 @@ export const getConversations = async (req, res) => {
 // Update a conversation title
 export const updateConversation = async (req, res) => {
   try {
-    const { id, title } = req.body;
+    const { conversationId, title } = req.body;
 
-    if (!id || !title) {
+    if (!conversationId || !title) {
       return res.status(400).json({
         message: "Conversation ID and title are required",
       });
     }
 
     const conversation = await Conversation.findByIdAndUpdate(
-      id,
+      conversationId,
       { title },
       { new: true, runValidators: true },
     );
@@ -69,6 +69,7 @@ export const updateConversation = async (req, res) => {
     return res.status(200).json({ conversation });
   } catch (error) {
     console.error("Error updating conversation:", error);
+
     return res.status(500).json({
       message: "Failed to update conversation",
     });

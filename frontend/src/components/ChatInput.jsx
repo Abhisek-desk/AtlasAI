@@ -11,6 +11,7 @@ import {
 } from "../redux/conversationSlice.js";
 
 import { addMessage, setMessageError } from "../redux/messageSlice.js";
+import { updateConversation } from "../../../backend/services/chat/controllers/chat.controller.js";
 
 const ChatInput = ({
   conversationId,
@@ -23,6 +24,7 @@ const ChatInput = ({
 
   const handleSendMessage = async ({ prompt, conversationId }) => {
     const text = prompt?.trim();
+
     if (!text || sending) return;
 
     let activeConversationId = conversationId;
@@ -41,11 +43,8 @@ const ChatInput = ({
 
         activeConversationId = conversation._id;
 
-        const conv=await createConversation()
-        dispatch(selectConversation(conv))
-
-        // Wait for the selected conversation to update before continuing.
-        await new Promise((resolve) => setTimeout(resolve, 0));
+        dispatch(addConversation(conversation));
+        dispatch(selectConversation(conversation));
       }
 
       dispatch(
@@ -60,7 +59,12 @@ const ChatInput = ({
         conversationId: activeConversationId,
       });
 
-      console.log("Agent result:", data);
+      dispatch(
+        updateConversation({
+          _id: activeConversationId,
+          title: text.trim().slice(0, 40),
+        }),
+      );
 
       const response =
         typeof data === "string"
@@ -75,8 +79,11 @@ const ChatInput = ({
           }),
         );
       }
-    } catch (err) {
-      console.error("Send message error:", err.response?.data || err.message);
+    } catch (error) {
+      console.error(
+        "Send message error:",
+        error.response?.data || error.message,
+      );
 
       dispatch(setMessageError("Failed to send message."));
     } finally {

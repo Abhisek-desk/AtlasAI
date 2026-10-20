@@ -1,22 +1,19 @@
 import api from "../../utils/axios.js";
 
-const getMessages = async (id) => {
-  if (!id) return [];
-
+const getMessages = async (conversationId) => {
   try {
     const { data } = await api.get(
-      `/api/chat/get-messages/${id}`
+      `/api/chat/get-messages/${conversationId}`
     );
 
-    return Array.isArray(data.messages) ? data.messages : [];
+    return Array.isArray(data) ? data : data.messages || [];
   } catch (error) {
     console.error(
       "Get messages error:",
-      error.response?.status,
       error.response?.data || error.message
     );
 
-    return [];
+    throw error;
   }
 };
 

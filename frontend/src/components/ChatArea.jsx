@@ -1,6 +1,6 @@
-
 import { useEffect, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
+import { useNavigate, useParams } from "react-router-dom";
 
 import ChatInput from "./ChatInput";
 import MessageList from "./MessageList";
@@ -23,20 +23,42 @@ import {
 
 const ChatArea = () => {
   const dispatch = useDispatch();
+  const navigate = useNavigate();
+  const { conversationId } = useParams();
 
-  const { selectedConversation } = useSelector(
-    (state) => state.conversation
+  const { conversations, selectedConversation } = useSelector(
+    (state) => state.conversation,
   );
 
   const { messages, loading, error } = useSelector(
-    (state) => state.message
+    (state) => state.message,
   );
 
   const [sending, setSending] = useState(false);
 
   useEffect(() => {
-    const conversationId = selectedConversation?._id;
+    if (!conversationId) {
+      if (selectedConversation) {
+        dispatch(clearMessages());
+      }
+      return;
+    }
 
+    const conversation = conversations.find(
+      (item) => item._id === conversationId,
+    );
+
+    if (conversation && selectedConversation?._id !== conversationId) {
+      dispatch(selectConversation(conversation));
+    }
+  }, [
+    conversationId,
+    conversations,
+    selectedConversation,
+    dispatch,
+  ]);
+
+  useEffect(() => {
     if (!conversationId) {
       dispatch(clearMessages());
       return;
@@ -73,7 +95,7 @@ const ChatArea = () => {
     return () => {
       cancelled = true;
     };
-  }, [selectedConversation, dispatch]);
+  }, [conversationId, dispatch]);
 
   const handleNewChat = async () => {
     try {
@@ -89,6 +111,8 @@ const ChatArea = () => {
 
       dispatch(addConversation(conversation));
       dispatch(selectConversation(conversation));
+
+      navigate(`/chat/${conversation._id}`);
     } catch (err) {
       console.error("Create conversation error:", err);
       dispatch(setMessageError("Failed to create a new conversation."));
@@ -108,7 +132,7 @@ const ChatArea = () => {
       />
 
       <ChatInput
-        conversationId={selectedConversation?._id}
+        conversationId={conversationId || selectedConversation?._id}
         disabled={loading || sending}
         sending={sending}
         setSending={setSending}

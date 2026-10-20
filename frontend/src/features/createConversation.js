@@ -1,10 +1,11 @@
+
 import api from "../../utils/axios.js";
 
 export const createConversation = async () => {
   try {
     const { data } = await api.post("/api/chat/create-conversation");
 
-    return data;
+    return data.conversation;
   } catch (error) {
     console.error(
       "Create conversation error:",
