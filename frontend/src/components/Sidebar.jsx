@@ -7,61 +7,89 @@ import {
 } from "lucide-react";
 
 import { useEffect, useState } from "react";
-import { getConversations } from "../features/getConversations.js";
 import { useDispatch, useSelector } from "react-redux";
+import { useNavigate } from "react-router-dom";
+
+import { getConversations } from "../features/getConversations.js";
+import { createConversation } from "../features/createConversation.js";
+import logout from "../features/logout.js";
 
 import {
   addConversation,
   setConversations,
-  selectConversation,
   clearSelectedConversation,
 } from "../redux/conversationSlice.js";
-
-import { createConversation } from "../features/createConversation.js";
-import logout from "../features/logout.js";
+import { clearMessages } from "../redux/messageSlice.js";
 import { setUserData } from "../redux/userSlice.js";
 
 const Sidebar = () => {
   const [collapsed, setCollapsed] = useState(false);
 
   const dispatch = useDispatch();
+  const navigate = useNavigate();
 
   const { conversations, selectedConversation } = useSelector(
     (state) => state.conversation,
   );
 
   const userData = useSelector((state) => state.user?.userData);
+  const isLoggedIn = Boolean(userData);
 
+  // Load conversations once the user is logged in (the request is
+  // unauthorised before that, and would otherwise never be retried).
   useEffect(() => {
+    if (!isLoggedIn) return;
+
+    let cancelled = false;
+
     const getConv = async () => {
       const data = await getConversations();
 
-      dispatch(setConversations(Array.isArray(data) ? data : []));
+      if (!cancelled) {
+        dispatch(setConversations(Array.isArray(data) ? data : []));
+      }
     };
 
     getConv();
-  }, [dispatch]);
 
-  const handleCreateConv = async () => {
-    const data = await createConversation();
-
-    if (data) {
-      dispatch(addConversation(data));
-    }
-  };
+    return () => {
+      cancelled = true;
+    };
+  }, [isLoggedIn, dispatch]);
 
   const handleNewChat = async () => {
     dispatch(clearSelectedConversation());
-    await handleCreateConv();
+    dispatch(clearMessages());
+
+    const data = await createConversation();
+
+    if (data?._id) {
+      // addConversation also selects the new conversation.
+      dispatch(addConversation(data));
+      navigate(`/chat/${data._id}`);
+    } else {
+      navigate("/");
+    }
+  };
+
+  const handleSelectConversation = (conversation) => {
+    // ChatArea reads the id from the URL, selects it and loads its messages.
+    navigate(`/chat/${conversation._id}`);
+  };
+
+  const handleLogout = async () => {
+    await logout();
+
+    dispatch(setUserData(null));
+    dispatch(setConversations([]));
+    dispatch(clearSelectedConversation());
+    dispatch(clearMessages());
+
+    navigate("/");
   };
 
   const userName =
-    userData?.displayName ||
-    userData?.name ||
-    userData?.fullName ||
-    "User";
-
-  const userEmail = userData?.email || "No email available";
+    userData?.displayName || userData?.name || userData?.fullName || "User";
 
   const userPhoto =
     userData?.photoURL ||
@@ -75,7 +103,7 @@ const Sidebar = () => {
   return (
     <div
       className={`relative z-20 flex h-dvh shrink-0 flex-col overflow-hidden border-r border-[#263247] bg-[#0F172A] transition-all duration-200 ${
-        collapsed ? "w-[72px]" : "w-[270px]"
+        collapsed ? "w-[72px]" : "w-[72px] md:w-[270px]"
       }`}
     >
       <div className="flex h-full min-h-0 flex-col">
@@ -84,7 +112,7 @@ const Sidebar = () => {
           <button
             type="button"
             aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            onClick={() => setCollapsed(!collapsed)}
+            onClick={() => setCollapsed((prev) => !prev)}
             className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[#94A3B8] transition-colors hover:bg-[#1E293B] hover:text-white"
           >
             <PanelLeftIcon size={18} />
@@ -104,7 +132,7 @@ const Sidebar = () => {
                 type="button"
                 aria-label="New chat"
                 onClick={handleNewChat}
-                className="flex h-8 w-8 items-center justify-center rounded-lg text-[#94A3B8] transition-colors hover:bg-[#1E293B] hover:text-[#A78BFA]"
+                className="hidden h-8 w-8 items-center justify-center rounded-lg text-[#94A3B8] transition-colors hover:bg-[#1E293B] hover:text-[#A78BFA] md:flex"
               >
                 <SquarePen size={17} />
               </button>
@@ -131,43 +159,48 @@ const Sidebar = () => {
         {/* Recent Chats */}
         <div className="mt-7 min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3">
           {!collapsed && (
-            <p className="mb-3 hidden px-2 md:block text-[11px] font-semibold uppercase tracking-[0.12em] text-[#64748B]">
+            <p className="mb-3 hidden px-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#64748B] md:block">
               Recent
             </p>
           )}
 
           <div className="space-y-1">
             {Array.isArray(conversations) && conversations.length > 0
-              ? conversations.map((conversation) => (
-                  <button
-                    key={conversation._id}
-                    type="button"
-                    title={conversation.title || "New Chat"}
-                    onClick={() => dispatch(selectConversation(conversation))}
-                    className={`group flex w-full min-w-0 items-center gap-3 rounded-lg border px-3 py-2.5 text-left text-sm transition-all duration-150 ${
-                      selectedConversation?._id === conversation._id
-                        ? "border-violet-400/15 bg-violet-500/10 text-violet-200"
-                        : "border-transparent text-[#94A3B8] hover:bg-[#1E293B] hover:text-[#F1F5F9]"
-                    }`}
-                  >
-                    <MessageSquare
-                      size={16}
-                      className={`shrink-0 ${
-                        selectedConversation?._id === conversation._id
-                          ? "text-[#A78BFA]"
-                          : "text-[#64748B] group-hover:text-[#A78BFA]"
-                      }`}
-                    />
+              ? conversations.map((conversation) => {
+                  const isSelected =
+                    selectedConversation?._id === conversation._id;
 
-                    {!collapsed && (
-                      <span className="hidden truncate md:block">
-                        {conversation.title || "New Chat"}
-                      </span>
-                    )}
-                  </button>
-                ))
+                  return (
+                    <button
+                      key={conversation._id}
+                      type="button"
+                      title={conversation.title || "New Chat"}
+                      onClick={() => handleSelectConversation(conversation)}
+                      className={`group flex w-full min-w-0 items-center justify-center gap-3 rounded-lg border px-3 py-2.5 text-left text-sm transition-all duration-150 md:justify-start ${
+                        isSelected
+                          ? "border-violet-400/15 bg-violet-500/10 text-violet-200"
+                          : "border-transparent text-[#94A3B8] hover:bg-[#1E293B] hover:text-[#F1F5F9]"
+                      }`}
+                    >
+                      <MessageSquare
+                        size={16}
+                        className={`shrink-0 ${
+                          isSelected
+                            ? "text-[#A78BFA]"
+                            : "text-[#64748B] group-hover:text-[#A78BFA]"
+                        }`}
+                      />
+
+                      {!collapsed && (
+                        <span className="hidden truncate md:block">
+                          {conversation.title || "New Chat"}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })
               : !collapsed && (
-                  <p className="hidden px-3 py-4 md:block text-center text-sm leading-6 text-[#64748B]">
+                  <p className="hidden px-3 py-4 text-center text-sm leading-6 text-[#64748B] md:block">
                     No recent conversations
                     <span className="mt-1 block text-xs text-[#475569]">
                       Start a new chat to begin
@@ -181,7 +214,7 @@ const Sidebar = () => {
         <div className="shrink-0 border-t border-[#263247] p-3">
           <div
             className={`flex min-w-0 items-center gap-3 rounded-xl px-2 py-3 transition-colors hover:bg-[#1E293B] ${
-              collapsed ? "justify-center" : ""
+              collapsed ? "justify-center" : "justify-center md:justify-start"
             }`}
           >
             <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-violet-400/20 bg-[#1E293B]">
@@ -208,14 +241,12 @@ const Sidebar = () => {
                   {userName}
                 </p>
 
-                <div className="mt-1 text-xs text-[#64748B]">
-                  Free Plan
-                </div>
+                <div className="mt-1 text-xs text-[#64748B]">Free Plan</div>
               </div>
             )}
 
             {!collapsed && (
-              <div className="hidden md:flex items-center gap-1">
+              <div className="hidden items-center gap-1 md:flex">
                 <button
                   type="button"
                   aria-label="Credits"
@@ -230,10 +261,7 @@ const Sidebar = () => {
                   aria-label="Log out"
                   title="Log out"
                   className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[#94A3B8] transition-colors hover:bg-red-500/10 hover:text-red-400"
-                  onClick={() => {
-                    logout();
-                    dispatch(setUserData(null));
-                  }}
+                  onClick={handleLogout}
                 >
                   <LogOut size={17} />
                 </button>

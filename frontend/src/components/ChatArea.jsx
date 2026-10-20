@@ -30,19 +30,15 @@ const ChatArea = () => {
     (state) => state.conversation,
   );
 
-  const { messages, loading, error } = useSelector(
-    (state) => state.message,
-  );
+  const { messages, loading, error } = useSelector((state) => state.message);
 
   const [sending, setSending] = useState(false);
+  // Suggestion chips pre-fill the input; `key` remounts it with the new text.
+  const [draft, setDraft] = useState({ key: 0, text: "" });
 
+  // Keep the selected conversation in sync with the URL.
   useEffect(() => {
-    if (!conversationId) {
-      if (selectedConversation) {
-        dispatch(clearMessages());
-      }
-      return;
-    }
+    if (!conversationId) return;
 
     const conversation = conversations.find(
       (item) => item._id === conversationId,
@@ -51,13 +47,9 @@ const ChatArea = () => {
     if (conversation && selectedConversation?._id !== conversationId) {
       dispatch(selectConversation(conversation));
     }
-  }, [
-    conversationId,
-    conversations,
-    selectedConversation,
-    dispatch,
-  ]);
+  }, [conversationId, conversations, selectedConversation?._id, dispatch]);
 
+  // Load messages only when the URL conversation changes.
   useEffect(() => {
     if (!conversationId) {
       dispatch(clearMessages());
@@ -100,7 +92,6 @@ const ChatArea = () => {
   const handleNewChat = async () => {
     try {
       dispatch(clearMessages());
-      dispatch(setMessageError(null));
 
       const conversation = await createConversation();
 
@@ -109,14 +100,18 @@ const ChatArea = () => {
         return;
       }
 
+      // addConversation already selects the new conversation.
       dispatch(addConversation(conversation));
-      dispatch(selectConversation(conversation));
 
       navigate(`/chat/${conversation._id}`);
     } catch (err) {
       console.error("Create conversation error:", err);
       dispatch(setMessageError("Failed to create a new conversation."));
     }
+  };
+
+  const handleSuggestion = (text) => {
+    setDraft((prev) => ({ key: prev.key + 1, text }));
   };
 
   return (
@@ -128,10 +123,12 @@ const ChatArea = () => {
         loading={loading}
         sending={sending}
         error={error}
-        onNewChat={handleNewChat}
+        onSuggestionClick={handleSuggestion}
       />
 
       <ChatInput
+        key={draft.key}
+        initialValue={draft.text}
         conversationId={conversationId || selectedConversation?._id}
         disabled={loading || sending}
         sending={sending}

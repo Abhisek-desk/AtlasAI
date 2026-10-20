@@ -5,7 +5,7 @@ import redis from "../../../shared/redis/redis.js";
 
 export const agent = async (req, res) => {
   try {
-    const { prompt, conversationId } = req.body;
+    const { prompt, conversationId, agent} = req.body;
 
     console.log("Request body:", req.body);
 
@@ -26,6 +26,7 @@ export const agent = async (req, res) => {
     const result = await graph.invoke({
       prompt,
       conversationId,
+      agent
     });
 
     // console.log("Graph result:", result);
@@ -47,9 +48,13 @@ export const agent = async (req, res) => {
         typeof aiResponse === "string"
           ? aiResponse
           : JSON.stringify(aiResponse),
+          images:result.images
     });
 
-    return res.status(200).json({ aiResponse });
+    return res.status(200).json({ 
+      answer:result.aiResponse,
+      images:result.images
+     });
   } catch (error) {
     console.error("Agent error:", error.response?.data || error.message);
     return res.status(500).json({

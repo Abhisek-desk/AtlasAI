@@ -1,28 +1,20 @@
-import { Plus, PanelLeft, MoreHorizontal } from "lucide-react";
+import { Plus, MoreHorizontal } from "lucide-react";
 import { useSelector } from "react-redux";
 
 const Nav = ({ onNewChat }) => {
-  const { selectedConversation } = useSelector(
-    (state) => state.conversation
+  const selectedConversation = useSelector(
+    (state) => state.conversation.selectedConversation,
   );
 
-  const { messages } = useSelector((state) => state.message);
+  const messageCount = useSelector((state) => state.message.messages.length);
 
-  const title =
-    selectedConversation?.title ||
-    selectedConversation?.name ||
-    "New chat";
+  if (!selectedConversation) return null;
 
-  const messageCount = messages?.length || 0;
+  const title = selectedConversation.title || selectedConversation.name || "New chat";
 
   return (
-    <>
-    {selectedConversation && <header className="flex h-16 shrink-0 items-center justify-between border-b border-white/5 px-3 sm:px-5 lg:px-8">
+    <header className="flex h-16 shrink-0 items-center justify-between border-b border-white/5 px-3 sm:px-5 lg:px-8">
       <div className="flex min-w-0 items-center gap-3">
-        {/* <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/5">
-          <PanelLeft size={18} className="text-gray-300" />
-        </div> */}
-
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h2 className="truncate text-sm font-semibold text-gray-100">
@@ -56,10 +48,8 @@ const Nav = ({ onNewChat }) => {
           <MoreHorizontal size={20} />
         </button>
       </div>
-    </header>}
-    </>
+    </header>
   );
 };
-
 
 export default Nav;

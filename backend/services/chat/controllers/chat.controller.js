@@ -40,7 +40,7 @@ export const updateConversation = async (req, res) => {
 
 export const saveMessage = async (req, res) => {
   try {
-    const { conversationId, role, content } = req.body;
+    const { conversationId, role, content, images } = req.body;
 
     if (!conversationId || !role || !content) {
       return res.status(400).json({
@@ -52,6 +52,7 @@ export const saveMessage = async (req, res) => {
       conversationId,
       role,
       content,
+      images
     });
 
     const conversation = await Conversation.findById(conversationId);

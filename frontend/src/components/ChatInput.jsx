@@ -1,26 +1,57 @@
 import { useState } from "react";
-import { useDispatch } from "react-redux";
-import { ArrowUp, Paperclip, Mic } from "lucide-react";
+import { useDispatch, useSelector } from "react-redux";
+import { useNavigate } from "react-router-dom";
+import {
+  ArrowUp,
+  Paperclip,
+  Mic,
+  Sparkles,
+  MessageSquare,
+  Code,
+  FileText,
+  Presentation,
+  Image as ImageIcon,
+  Globe,
+} from "lucide-react";
 
 import api from "../../utils/axios.js";
 import { createConversation } from "../features/createConversation.js";
 
 import {
   addConversation,
-  selectConversation,
+  updateConversation,
 } from "../redux/conversationSlice.js";
 
 import { addMessage, setMessageError } from "../redux/messageSlice.js";
-import { updateConversation } from "../../../backend/services/chat/controllers/chat.controller.js";
+
+const DEFAULT_TITLE = "New Chat";
+
+const AGENTS = [
+  { id: "auto", label: "Auto", icon: Sparkles },
+  { id: "chat", label: "Chat", icon: MessageSquare },
+  { id: "coding", label: "Coding", icon: Code },
+  { id: "pdf", label: "PDF", icon: FileText },
+  { id: "ppt", label: "PPT", icon: Presentation },
+  { id: "image", label: "Image", icon: ImageIcon },
+  { id: "search", label: "Search", icon: Globe },
+];
 
 const ChatInput = ({
   conversationId,
   disabled = false,
   sending,
   setSending,
+  initialValue = "",
 }) => {
   const dispatch = useDispatch();
-  const [message, setMessage] = useState("");
+  const navigate = useNavigate();
+
+  const currentTitle = useSelector(
+    (state) => state.conversation.selectedConversation?.title,
+  );
+
+  const [message, setMessage] = useState(initialValue);
+  const [selectedAgent, setSelectedAgent] = useState("auto");
 
   const handleSendMessage = async ({ prompt, conversationId }) => {
     const text = prompt?.trim();
@@ -28,6 +59,7 @@ const ChatInput = ({
     if (!text || sending) return;
 
     let activeConversationId = conversationId;
+    let createdNow = false;
 
     try {
       setSending(true);
@@ -42,29 +74,19 @@ const ChatInput = ({
         }
 
         activeConversationId = conversation._id;
+        createdNow = true;
 
+        // addConversation already selects the new conversation.
         dispatch(addConversation(conversation));
-        dispatch(selectConversation(conversation));
       }
 
-      dispatch(
-        addMessage({
-          role: "user",
-          content: text,
-        }),
-      );
+      dispatch(addMessage({ role: "user", content: text }));
 
       const { data } = await api.post("/api/agent/chat", {
         prompt: text,
         conversationId: activeConversationId,
+        agent: selectedAgent,
       });
-
-      dispatch(
-        updateConversation({
-          _id: activeConversationId,
-          title: text.trim().slice(0, 40),
-        }),
-      );
 
       const response =
         typeof data === "string"
@@ -72,12 +94,31 @@ const ChatInput = ({
           : data?.aiResponse || data?.reply || data?.message || data?.content;
 
       if (response) {
-        dispatch(
-          addMessage({
-            role: "assistant",
-            content: response,
-          }),
-        );
+        dispatch(addMessage({ role: "assistant", content: response,images:response.images }));
+      }
+
+      // Name the conversation from its first prompt only.
+      if (createdNow || !currentTitle || currentTitle === DEFAULT_TITLE) {
+        const title = text.slice(0, 40);
+
+        dispatch(updateConversation({ _id: activeConversationId, title }));
+
+        try {
+          await api.put("/api/chat/update-conversation", {
+            conversationId: activeConversationId,
+            title,
+          });
+        } catch (titleError) {
+          console.error(
+            "Update title error:",
+            titleError.response?.data || titleError.message,
+          );
+        }
+      }
+
+      // Put the new conversation in the URL so a refresh keeps it.
+      if (createdNow) {
+        navigate(`/chat/${activeConversationId}`, { replace: true });
       }
     } catch (error) {
       console.error(
@@ -100,15 +141,16 @@ const ChatInput = ({
 
     setMessage("");
 
-    handleSendMessage({
-      prompt,
-      conversationId,
-    });
+    handleSendMessage({ prompt, conversationId });
   };
 
   const handleKeyDown = (event) => {
-    if (event.key === "Enter" && !event.shiftKey) {
-      event.preventDefault();
+    // Ignore Enter while an IME composition is in progress.
+    if (
+      event.key === "Enter" &&
+      !event.shiftKey &&
+      !event.nativeEvent.isComposing
+    ) {
       handleSubmit(event);
     }
   };
@@ -119,6 +161,28 @@ const ChatInput = ({
         onSubmit={handleSubmit}
         className="mx-auto max-w-4xl rounded-2xl border border-white/10 bg-[#171a22] shadow-lg transition focus-within:border-white/20"
       >
+        <div className="flex items-center gap-1.5 overflow-x-auto px-4 pt-3 pb-1 no-scrollbar ">
+          {AGENTS.map((agent) => {
+            const Icon = agent.icon;
+            const isSelected = selectedAgent === agent.id;
+            return (
+              <button
+                key={agent.id}
+                type="button"
+                onClick={() => setSelectedAgent(agent.id)}
+                className={`flex items-center gap-1.5 cursor-pointer rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                  isSelected
+                    ? "bg-purple-600 text-white shadow"
+                    : "bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white"
+                }`}
+              >
+                <Icon size={14} />
+                <span>{agent.label}</span>
+              </button>
+            );
+          })}
+        </div>
+
         <textarea
           value={message}
           onChange={(event) => setMessage(event.target.value)}
@@ -126,7 +190,8 @@ const ChatInput = ({
           placeholder="Message AtlasAI..."
           disabled={disabled}
           rows={1}
-          className="max-h-48 min-h-14 w-full resize-none bg-transparent px-4 pt-4 text-sm text-white outline-none placeholder:text-gray-500 disabled:opacity-60"
+          autoFocus={Boolean(initialValue)}
+          className="max-h-48 min-h-14 w-full resize-none bg-transparent px-4 pt-2 text-sm text-white outline-none placeholder:text-gray-500 disabled:opacity-60"
         />
 
         <div className="flex items-center justify-between px-3 pb-3">

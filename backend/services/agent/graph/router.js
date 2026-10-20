@@ -1,9 +1,16 @@
 import { getModel } from "../config/llmModels.js";
 
 export const router = async (state) => {
-  const llm = await getModel("router");
+  if (state.agent && state.agent == "auto") {
+    return {
+      ...state,
+      agent: state.agent,
+    };
+  }
+};
+const llm = await getModel("router");
 
-  const prompt = `You are a router agent that routes the user query to the appropriate agent based on the query.
+const prompt = `You are a router agent that routes the user query to the appropriate agent based on the query.
 You have the following agents available:
 - chat
 - search
@@ -40,11 +47,9 @@ User query:${state.prompt}
 
 `;
 
-const response = await llm.invoke(prompt)
-console.log(response)
+const response = await llm.invoke(prompt);
 
-return{
-    ...state,
-    agent:response.content.trim().toLowerCase()
-}
+return {
+  ...state,
+  agent: response.content.trim().toLowerCase(),
 };
