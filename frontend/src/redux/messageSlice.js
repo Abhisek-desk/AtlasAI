@@ -7,6 +7,8 @@ const messageSlice = createSlice({
     messages: [],
     loading: false,
     error: null,
+    artifacts: [],
+    artifactOpen: true,
   },
 
   reducers: {
@@ -39,6 +41,7 @@ const messageSlice = createSlice({
 
     clearMessages: (state) => {
       state.messages = [];
+      state.artifacts = [];
       state.error = null;
     },
 
@@ -48,6 +51,20 @@ const messageSlice = createSlice({
 
     setMessageError: (state, action) => {
       state.error = action.payload;
+    },
+
+    // Showing an artifact (new, or opened from a chat message) also expands
+    // the panel if it was collapsed.
+    setArtifacts: (state, action) => {
+      state.artifacts = Array.isArray(action.payload) ? action.payload : [];
+
+      if (state.artifacts.length > 0) {
+        state.artifactOpen = true;
+      }
+    },
+
+    setArtifactOpen: (state, action) => {
+      state.artifactOpen = Boolean(action.payload);
     },
   },
 });
@@ -59,6 +76,8 @@ export const {
   clearMessages,
   setMessageLoading,
   setMessageError,
+  setArtifacts,
+  setArtifactOpen,
 } = messageSlice.actions;
 
 export default messageSlice.reducer;

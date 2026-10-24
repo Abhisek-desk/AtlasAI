@@ -7,27 +7,42 @@ import {
 import { getModel } from "../config/llmModels.js";
 import { getMemory } from "../config/memory.js";
 
+// Only send the text results to the LLM (not image URLs or metadata).
+const formatSearchContext = (searchResults) => {
+  const items = Array.isArray(searchResults?.results)
+    ? searchResults.results
+    : [];
+
+  if (items.length === 0) return "";
+
+  return items
+    .map(
+      (item, index) =>
+        `[${index + 1}] ${item.title}\nURL: ${item.url}\n${item.content}`,
+    )
+    .join("\n\n");
+};
+
 export const chatAgent = async (state) => {
   const llm = await getModel("chat");
 
   const history = await getMemory(state.conversationId);
 
-  const searchContext = state.searchResults
-    ? `Web Search Results 
-  ${JSON.stringify(state.searchResults)}
-   Answer the user using only the above results`
-    : "";
+  let systemPrompt =
+    "You are AtlasAI, a helpful assistant. Provide accurate, clear, and useful answers.";
 
-  const systemPrompt = `You are AtlasAI, a helpful assistant.Provide accurate, clear, and useful answers.
-  ${searchContext} 
-  If searchContext exists:
-  - Use search results to answer
-  - Do not mention internal errors`;
+  const searchContext = formatSearchContext(state.searchResults);
+
+  if (searchContext) {
+    systemPrompt +=
+      "\n\nUse the following real-time web search results to answer. " +
+      "Prefer them over your own knowledge for current information and " +
+      "mention source URLs when useful.\n\n" +
+      searchContext;
+  }
 
   const messages = [new SystemMessage(systemPrompt)];
 
-  // The current prompt is already stored in history by the controller.
-  // Convert the saved messages into LangChain message objects.
   for (const msg of history) {
     if (msg.role === "user") {
       messages.push(new HumanMessage(msg.content));
@@ -36,7 +51,8 @@ export const chatAgent = async (state) => {
     }
   }
 
-  // Add the current prompt only if it isn't already the last user message.
+  // The controller stores the current prompt in history only after the graph
+  // runs, so add it here unless it is already the last user message.
   const lastMessage = history[history.length - 1];
 
   if (
@@ -49,8 +65,5 @@ export const chatAgent = async (state) => {
 
   const response = await llm.invoke(messages);
 
-  return {
-    ...state,
-    aiResponse: response.content,
-  };
+  return { aiResponse: response.content };
 };

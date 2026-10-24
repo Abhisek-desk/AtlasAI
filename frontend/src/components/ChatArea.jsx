@@ -19,6 +19,7 @@ import {
   clearMessages,
   setMessageLoading,
   setMessageError,
+  setArtifacts,
 } from "../redux/messageSlice.js";
 
 const ChatArea = () => {
@@ -52,6 +53,7 @@ const ChatArea = () => {
   // Load messages only when the URL conversation changes.
   useEffect(() => {
     if (!conversationId) {
+      // Also clears the artifact panel.
       dispatch(clearMessages());
       return;
     }
@@ -66,7 +68,18 @@ const ChatArea = () => {
         const data = await getMessages(conversationId);
 
         if (!cancelled) {
-          dispatch(setMessages(Array.isArray(data) ? data : []));
+          const list = Array.isArray(data) ? data : [];
+
+          dispatch(setMessages(list));
+
+          // Show the most recent generated project, if this chat has one.
+          const latestArtifactMessage = [...list]
+            .reverse()
+            .find(
+              (msg) => Array.isArray(msg.artifacts) && msg.artifacts.length > 0,
+            );
+
+          dispatch(setArtifacts(latestArtifactMessage?.artifacts || []));
         }
       } catch (err) {
         console.error("Fetch messages error:", err);
@@ -74,6 +87,7 @@ const ChatArea = () => {
         if (!cancelled) {
           dispatch(setMessages([]));
           dispatch(setMessageError("Failed to load messages."));
+          dispatch(setArtifacts([]));
         }
       } finally {
         if (!cancelled) {

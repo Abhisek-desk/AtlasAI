@@ -1,7 +1,20 @@
-import { memo, useEffect, useRef, useState } from "react";
-import { Bot, User, Copy, Check, AlertCircle } from "lucide-react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { useDispatch } from "react-redux";
+import {
+  Bot,
+  User,
+  Copy,
+  Check,
+  AlertCircle,
+  ExternalLink,
+  Code2,
+} from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
+
+import { setArtifacts } from "../redux/messageSlice.js";
 
 const SUGGESTIONS = [
   "Write a Netflix clone",
@@ -14,85 +27,451 @@ const REMARK_PLUGINS = [remarkGfm];
 const toText = (content) =>
   typeof content === "string" ? content : JSON.stringify(content ?? "");
 
+const unwrapMarkdownFence = (text) => {
+  const match = /^\s*```(?:markdown|md)[ \t]*\n([\s\S]*?)\n```\s*$/i.exec(text);
+
+  return match ? match[1] : text;
+};
+
+/* -------------------------------------------------------------------------- */
+/*  Code block: language label + copy button + line numbers + highlighting    */
+/* -------------------------------------------------------------------------- */
+
+const CODE_FONT =
+  "ui-monospace, SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace";
+
+// Also used by the Artifact panel (`bare` removes the card margin/border and
+// lets the code area fill its parent, `label` replaces the language name).
+export const CodeBlock = ({ code, language = "text", label, bare = false }) => {
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef(null);
+
+  useEffect(() => () => clearTimeout(timerRef.current), []);
+
+  const copyCode = async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+
+      setCopied(true);
+
+      clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setCopied(false), 1500);
+    } catch (err) {
+      console.error("Copy code error:", err);
+    }
+  };
+
+  return (
+    <div
+      className={
+        bare
+          ? "flex h-full min-h-0 flex-col bg-[#111318]"
+          : "my-4 overflow-hidden rounded-xl border border-white/10 bg-[#111318]"
+      }
+    >
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/10 bg-[#1b1d24] px-4 py-2">
+        <span
+          className={`truncate text-xs text-slate-400 ${
+            label ? "" : "uppercase"
+          }`}
+        >
+          {label || language}
+        </span>
+
+        <button
+          type="button"
+          onClick={copyCode}
+          aria-label="Copy code"
+          className="flex shrink-0 items-center gap-1 text-xs text-slate-400 transition hover:text-white"
+        >
+          {copied ? (
+            <>
+              <Check size={14} />
+              Copied
+            </>
+          ) : (
+            <>
+              <Copy size={14} />
+              Copy
+            </>
+          )}
+        </button>
+      </div>
+
+      <div className={bare ? "min-h-0 flex-1 overflow-auto" : "overflow-x-auto"}>
+        <SyntaxHighlighter
+          language={language}
+          style={oneDark}
+          showLineNumbers
+          PreTag="div"
+          customStyle={{
+            margin: 0,
+            padding: "1rem",
+            background: "transparent",
+            fontSize: "13px",
+            lineHeight: "1.6",
+          }}
+          lineNumberStyle={{
+            minWidth: "2.5em",
+            paddingRight: "1em",
+            color: "#4b5263",
+            fontStyle: "italic",
+            userSelect: "none",
+          }}
+          codeTagProps={{ style: { fontFamily: CODE_FONT } }}
+        >
+          {code}
+        </SyntaxHighlighter>
+      </div>
+    </div>
+  );
+};
+
+/* -------------------------------------------------------------------------- */
+/*  Links: clickable, with a hover card offering Copy / Go                    */
+/* -------------------------------------------------------------------------- */
+
+const HTTP_URL = /^https?:\/\//i;
+const CARD_WIDTH = 288;
+
+const getHost = (href) => {
+  try {
+    return new URL(href).hostname.replace(/^www\./, "");
+  } catch {
+    return href;
+  }
+};
+
+const LINK_CLASS =
+  "break-words rounded-sm text-indigo-400 underline decoration-indigo-400/40 underline-offset-2 transition hover:bg-indigo-400/10 hover:text-indigo-300 hover:decoration-indigo-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400";
+
+const MarkdownLink = ({ href, children }) => {
+  const anchorRef = useRef(null);
+  const closeTimerRef = useRef(null);
+  const copyTimerRef = useRef(null);
+
+  const [card, setCard] = useState(null); // { top, left, above } | null
+  const [copied, setCopied] = useState(false);
+
+  const isWebLink = typeof href === "string" && HTTP_URL.test(href);
+
+  const cancelClose = () => clearTimeout(closeTimerRef.current);
+
+  const closeNow = () => {
+    cancelClose();
+    setCard(null);
+  };
+
+  // Small delay so the pointer can travel from the link to the card.
+  const scheduleClose = () => {
+    cancelClose();
+    closeTimerRef.current = setTimeout(() => setCard(null), 150);
+  };
+
+  const openCard = () => {
+    cancelClose();
+
+    const element = anchorRef.current;
+    if (!element) return;
+
+    const rect = element.getBoundingClientRect();
+    const above = rect.bottom + 120 > window.innerHeight && rect.top > 140;
+
+    setCard({
+      above,
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - CARD_WIDTH - 8)),
+      top: above ? rect.top - 6 : rect.bottom + 6,
+    });
+  };
+
+  // The card uses fixed positioning, so close it if the page moves under it.
+  useEffect(() => {
+    if (!card) return;
+
+    const close = () => setCard(null);
+
+    window.addEventListener("scroll", close, true);
+    window.addEventListener("resize", close);
+
+    return () => {
+      window.removeEventListener("scroll", close, true);
+      window.removeEventListener("resize", close);
+    };
+  }, [card]);
+
+  useEffect(
+    () => () => {
+      clearTimeout(closeTimerRef.current);
+      clearTimeout(copyTimerRef.current);
+    },
+    [],
+  );
+
+  const copyLink = async () => {
+    try {
+      await navigator.clipboard.writeText(href);
+
+      setCopied(true);
+
+      clearTimeout(copyTimerRef.current);
+      copyTimerRef.current = setTimeout(() => setCopied(false), 1500);
+    } catch (err) {
+      console.error("Copy link error:", err);
+    }
+  };
+
+  // mailto:, #anchors, relative links: plain styled link, no card.
+  if (!isWebLink) {
+    return (
+      <a href={href} className={LINK_CLASS}>
+        {children}
+      </a>
+    );
+  }
+
+  return (
+    <>
+      <a
+        ref={anchorRef}
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        onMouseEnter={openCard}
+        onMouseLeave={scheduleClose}
+        onFocus={openCard}
+        onBlur={scheduleClose}
+        onKeyDown={(event) => event.key === "Escape" && closeNow()}
+        className={LINK_CLASS}
+      >
+        {children}
+      </a>
+
+      {card && (
+        <span
+          role="tooltip"
+          onMouseEnter={cancelClose}
+          onMouseLeave={scheduleClose}
+          onFocus={cancelClose}
+          onBlur={scheduleClose}
+          style={{
+            position: "fixed",
+            top: card.top,
+            left: card.left,
+            width: CARD_WIDTH,
+            transform: card.above ? "translateY(-100%)" : undefined,
+          }}
+          className="z-50 flex flex-col gap-2 rounded-xl border border-white/10 bg-[#1b1f2a] p-3 text-left shadow-2xl shadow-black/40"
+        >
+          <span className="block truncate text-sm font-medium text-gray-100">
+            {getHost(href)}
+          </span>
+
+          <span className="line-clamp-2 block break-all text-[11px] leading-4 text-gray-500">
+            {href}
+          </span>
+
+          <span className="flex gap-2 pt-1">
+            <button
+              type="button"
+              onClick={copyLink}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs font-medium text-gray-200 transition hover:bg-white/10"
+            >
+              {copied ? <Check size={13} /> : <Copy size={13} />}
+              {copied ? "Copied" : "Copy"}
+            </button>
+
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={closeNow}
+              className="flex flex-1 items-center justify-center gap-1.5 rounded-lg bg-indigo-500 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-indigo-400"
+            >
+              <ExternalLink size={13} />
+              Go
+            </a>
+          </span>
+        </span>
+      )}
+    </>
+  );
+};
+
+/* -------------------------------------------------------------------------- */
+/*  Markdown element styles                                                   */
+/* -------------------------------------------------------------------------- */
+
 // Defined once so react-markdown doesn't get a new object on every render.
 const markdownComponents = {
-  p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
+  // ---- Headings -----------------------------------------------------------
   h1: ({ children }) => (
-    <h1 className="mb-3 mt-5 text-2xl font-bold text-white">{children}</h1>
+    <h1 className="mb-4 mt-6 border-b border-white/10 pb-2 text-2xl font-bold tracking-tight text-white first:mt-0">
+      {children}
+    </h1>
   ),
   h2: ({ children }) => (
-    <h2 className="mb-3 mt-4 text-xl font-bold text-white">{children}</h2>
+    <h2 className="mb-3 mt-6 border-b border-white/5 pb-1.5 text-xl font-semibold tracking-tight text-white first:mt-0">
+      {children}
+    </h2>
   ),
   h3: ({ children }) => (
-    <h3 className="mb-2 mt-4 text-lg font-semibold text-white">{children}</h3>
+    <h3 className="mb-2 mt-5 text-lg font-semibold text-gray-100 first:mt-0">
+      {children}
+    </h3>
   ),
-  ul: ({ children }) => (
-    <ul className="mb-3 list-disc space-y-1 pl-6">{children}</ul>
+  h4: ({ children }) => (
+    <h4 className="mb-2 mt-4 text-base font-semibold text-gray-200 first:mt-0">
+      {children}
+    </h4>
   ),
-  ol: ({ children }) => (
-    <ol className="mb-3 list-decimal space-y-1 pl-6">{children}</ol>
+
+  // ---- Text ---------------------------------------------------------------
+  p: ({ children }) => (
+    <p className="mb-3 leading-7 text-gray-200 last:mb-0">{children}</p>
   ),
-  li: ({ children }) => <li>{children}</li>,
+  strong: ({ children }) => (
+    <strong className="font-semibold text-white">{children}</strong>
+  ),
+  em: ({ children }) => <em className="italic text-gray-100">{children}</em>,
+  del: ({ children }) => (
+    <del className="text-gray-500 line-through">{children}</del>
+  ),
+  hr: () => <hr className="my-5 border-white/10" />,
   blockquote: ({ children }) => (
-    <blockquote className="my-3 border-l-4 border-indigo-400 pl-4 text-gray-400">
+    <blockquote className="my-4 rounded-r-lg border-l-4 border-indigo-400 bg-white/[0.03] py-2 pl-4 pr-3 text-gray-400 [&>p]:mb-1 [&>p]:text-gray-400">
       {children}
     </blockquote>
   ),
-  a: ({ href, children }) => (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="text-indigo-400 underline hover:text-indigo-300"
+  a: MarkdownLink,
+
+  // ---- Lists (incl. GFM task lists) ---------------------------------------
+  ul: ({ children }) => (
+    <ul className="mb-3 list-disc space-y-1.5 pl-6 marker:text-gray-500 [&_ol]:mt-1.5 [&_ul]:mt-1.5 [&_ul]:list-[circle]">
+      {children}
+    </ul>
+  ),
+  ol: ({ start, children }) => (
+    <ol
+      start={start}
+      className="mb-3 list-decimal space-y-1.5 pl-6 marker:text-gray-500 [&_ol]:mt-1.5 [&_ul]:mt-1.5"
     >
       {children}
-    </a>
+    </ol>
   ),
-  pre: ({ children }) => (
-    <pre className="my-3 overflow-x-auto rounded-xl border border-white/10 bg-[#111318] p-4 text-sm leading-6">
-      {children}
-    </pre>
-  ),
-  // Props are not spread, so react-markdown's `node` prop never reaches the
-  // DOM. Fenced blocks without a language have no className, so also check
-  // for newlines to tell them apart from inline code.
-  code: ({ className, children }) => {
-    const isBlock = Boolean(className) || /\n/.test(String(children));
+  li: ({ className, children }) => {
+    // remark-gfm marks task list items with "task-list-item".
+    const isTask = String(className || "").includes("task-list-item");
 
-    return isBlock ? (
-      <code className={`${className || ""} font-mono`}>{children}</code>
-    ) : (
-      <code className="rounded bg-white/10 px-1.5 py-0.5 font-mono text-indigo-200">
+    return (
+      <li
+        className={`leading-7 text-gray-200 [&>p]:mb-1 ${
+          isTask ? "-ml-6 list-none" : ""
+        }`}
+      >
         {children}
-      </code>
+      </li>
     );
   },
+  input: ({ type, checked }) =>
+    type === "checkbox" ? (
+      <input
+        type="checkbox"
+        checked={Boolean(checked)}
+        disabled
+        readOnly
+        className="mr-2 h-3.5 w-3.5 translate-y-[1px] accent-indigo-500"
+      />
+    ) : null,
+
+  // ---- Code ---------------------------------------------------------------
+  // CodeBlock draws its own card, so <pre> must not add a second box.
+  pre: ({ children }) => <>{children}</>,
+  code: ({ className, children }) => {
+    const value = String(children).replace(/\n$/, "");
+    const match = /language-([\w-]+)/.exec(className || "");
+
+    // No language and a single line: inline `code`.
+    if (!match && !value.includes("\n")) {
+      return (
+        <code className="break-words rounded bg-white/10 px-1.5 py-0.5 font-mono text-[0.85em] text-indigo-300">
+          {value}
+        </code>
+      );
+    }
+
+    return <CodeBlock code={value} language={match ? match[1] : "text"} />;
+  },
+
+  // ---- Tables (GFM) -------------------------------------------------------
   table: ({ children }) => (
-    <div className="my-4 overflow-x-auto">
-      <table className="w-full border-collapse text-left text-sm">
+    <div className="my-4 w-full overflow-x-auto rounded-xl border border-white/10">
+      <table className="w-full min-w-max border-collapse text-left text-sm [&_tbody_tr:nth-child(even)]:bg-white/[0.03]">
         {children}
       </table>
     </div>
   ),
-  th: ({ children }) => (
-    <th className="border border-white/10 bg-white/5 px-3 py-2 font-semibold text-white">
+  thead: ({ children }) => <thead className="bg-white/5">{children}</thead>,
+  tr: ({ children }) => (
+    <tr className="border-b border-white/10 last:border-b-0">{children}</tr>
+  ),
+  th: ({ style, children }) => (
+    <th
+      style={style}
+      className="px-4 py-2.5 text-xs font-semibold uppercase tracking-wide text-gray-300"
+    >
       {children}
     </th>
   ),
-  td: ({ children }) => (
-    <td className="border border-white/10 px-3 py-2">{children}</td>
+  td: ({ style, children }) => (
+    <td style={style} className="px-4 py-2.5 align-top text-gray-200">
+      {children}
+    </td>
   ),
-  hr: () => <hr className="my-4 border-white/10" />,
+
+  // ---- Images written in markdown ----------------------------------------
+  img: ({ src, alt }) =>
+    src ? (
+      <img
+        src={src}
+        alt={alt || ""}
+        loading="lazy"
+        referrerPolicy="no-referrer"
+        className="my-3 max-h-96 max-w-full rounded-xl border border-white/10 object-contain"
+        onError={(event) => {
+          event.currentTarget.style.display = "none";
+        }}
+      />
+    ) : null,
 };
+
+/* -------------------------------------------------------------------------- */
+/*  One chat message                                                          */
+/* -------------------------------------------------------------------------- */
 
 const MessageItem = memo(function MessageItem({
   message,
   messageId,
   copied,
   onCopy,
+  onOpenArtifacts,
 }) {
   const isUser = message.role === "user";
-  const content = toText(message.content);
+  const content = isUser
+    ? toText(message.content)
+    : unwrapMarkdownFence(toText(message.content));
+
+  const images = Array.isArray(message.images)
+    ? message.images.filter((src) => typeof src === "string" && src)
+    : [];
+
+  const visibleImages = images.slice(0, 6);
+
+  const artifacts = Array.isArray(message.artifacts) ? message.artifacts : [];
+  const fileCount = artifacts.reduce(
+    (total, artifact) =>
+      total + (Array.isArray(artifact?.files) ? artifact.files.length : 0),
+    0,
+  );
 
   return (
     <article
@@ -111,13 +490,51 @@ const MessageItem = memo(function MessageItem({
       </div>
 
       <div
-        className={`min-w-0 max-w-[85%] sm:max-w-[80%] ${
-          isUser ? "text-right" : "text-left"
+        className={`min-w-0 ${
+          isUser
+            ? "max-w-[85%] text-right sm:max-w-[80%]"
+            : "max-w-[85%] text-left sm:max-w-[90%]"
         }`}
       >
         <div className="mb-2 text-xs font-medium text-gray-400">
           {isUser ? "You" : "AtlasAI"}
         </div>
+
+        {/* Images first, above the text */}
+        {!isUser && visibleImages.length > 0 && (
+          <div
+            className={`mb-4 grid gap-2 ${
+              visibleImages.length === 1
+                ? "grid-cols-1"
+                : "grid-cols-2 sm:grid-cols-3"
+            }`}
+          >
+            {visibleImages.map((src) => (
+              <a
+                key={src}
+                href={src}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="block overflow-hidden rounded-xl border border-white/10 bg-[#111318]"
+              >
+                <img
+                  src={src}
+                  alt="Search result"
+                  loading="lazy"
+                  referrerPolicy="no-referrer"
+                  className={`w-full object-cover transition hover:opacity-90 ${
+                    visibleImages.length === 1
+                      ? "max-h-80 sm:max-h-96"
+                      : "aspect-video h-full"
+                  }`}
+                  onError={(event) => {
+                    event.currentTarget.parentElement.style.display = "none";
+                  }}
+                />
+              </a>
+            ))}
+          </div>
+        )}
 
         <div
           className={`break-words text-sm leading-7 ${
@@ -140,6 +557,28 @@ const MessageItem = memo(function MessageItem({
           )}
         </div>
 
+        {/* Generated project: click to show it in the artifact panel */}
+        {!isUser && fileCount > 0 && (
+          <button
+            type="button"
+            onClick={() => onOpenArtifacts(artifacts)}
+            className="mt-3 flex w-full max-w-sm items-center gap-3 rounded-xl border border-white/10 bg-[#171a22] p-3 text-left transition hover:bg-[#1d212b]"
+          >
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-500/15 text-indigo-300">
+              <Code2 size={18} />
+            </span>
+
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium text-gray-100">
+                {artifacts[0]?.title || "Project"}
+              </span>
+              <span className="block text-xs text-gray-500">
+                {fileCount} {fileCount === 1 ? "file" : "files"} · Click to open
+              </span>
+            </span>
+          </button>
+        )}
+
         {!isUser && (
           <div className="mt-2 flex items-center gap-1 opacity-100 transition sm:opacity-0 sm:group-hover:opacity-100">
             <button
@@ -158,6 +597,10 @@ const MessageItem = memo(function MessageItem({
   );
 });
 
+/* -------------------------------------------------------------------------- */
+/*  Message list                                                              */
+/* -------------------------------------------------------------------------- */
+
 const MessageList = ({
   messages = [],
   loading = false,
@@ -165,6 +608,7 @@ const MessageList = ({
   error = "",
   onSuggestionClick,
 }) => {
+  const dispatch = useDispatch();
   const bottomRef = useRef(null);
   const copyTimerRef = useRef(null);
   const [copiedId, setCopiedId] = useState(null);
@@ -174,6 +618,12 @@ const MessageList = ({
   }, [messages, sending]);
 
   useEffect(() => () => clearTimeout(copyTimerRef.current), []);
+
+  // Stable reference so memoised messages don't re-render on every update.
+  const openArtifacts = useCallback(
+    (artifacts) => dispatch(setArtifacts(artifacts)),
+    [dispatch],
+  );
 
   const copyMessage = async (content, messageId) => {
     try {
@@ -245,6 +695,7 @@ const MessageList = ({
                 messageId={messageId}
                 copied={copiedId === messageId}
                 onCopy={copyMessage}
+                onOpenArtifacts={openArtifacts}
               />
             );
           })}

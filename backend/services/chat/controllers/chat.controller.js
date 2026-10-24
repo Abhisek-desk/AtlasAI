@@ -40,7 +40,7 @@ export const updateConversation = async (req, res) => {
 
 export const saveMessage = async (req, res) => {
   try {
-    const { conversationId, role, content, images } = req.body;
+    const { conversationId, role, content, images, artifacts} = req.body;
 
     if (!conversationId || !role || !content) {
       return res.status(400).json({
@@ -52,27 +52,18 @@ export const saveMessage = async (req, res) => {
       conversationId,
       role,
       content,
-      images
+      images: Array.isArray(images) ? images : [],
+      artifacts
     });
 
-    const conversation = await Conversation.findById(conversationId);
-
-    if (conversation) {
-      if (
-        role === "user" &&
-        (!conversation.title || conversation.title === "New Chat")
-      ) {
-        conversation.title = content.trim().slice(0, 40);
-      }
-
-      conversation.updatedAt = new Date();
-      await conversation.save();
-    }
+    // Update the conversation's updatedAt timestamp
+    await Conversation.findByIdAndUpdate(conversationId, {
+      updatedAt: new Date(),
+    });
 
     return res.status(201).json({ message });
   } catch (error) {
     console.error("Error saving message:", error);
-
     return res.status(500).json({
       message: "Failed to save message",
     });

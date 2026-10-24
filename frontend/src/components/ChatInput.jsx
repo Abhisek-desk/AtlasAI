@@ -22,7 +22,11 @@ import {
   updateConversation,
 } from "../redux/conversationSlice.js";
 
-import { addMessage, setMessageError } from "../redux/messageSlice.js";
+import {
+  addMessage,
+  setArtifacts,
+  setMessageError,
+} from "../redux/messageSlice.js";
 
 const DEFAULT_TITLE = "New Chat";
 
@@ -32,7 +36,7 @@ const AGENTS = [
   { id: "coding", label: "Coding", icon: Code },
   { id: "pdf", label: "PDF", icon: FileText },
   { id: "ppt", label: "PPT", icon: Presentation },
-  { id: "image", label: "Image", icon: ImageIcon },
+  { id: "vision", label: "vision", icon: ImageIcon },
   { id: "search", label: "Search", icon: Globe },
 ];
 
@@ -91,10 +95,25 @@ const ChatInput = ({
       const response =
         typeof data === "string"
           ? data
-          : data?.aiResponse || data?.reply || data?.message || data?.content;
+          : data?.aiResponse ||
+            data?.answer ||
+            data?.reply ||
+            data?.message ||
+            data?.content;
+
+      const images = Array.isArray(data?.images) ? data.images : [];
+      const artifacts = Array.isArray(data?.artifacts) ? data.artifacts : [];
+
+      // Keep the current project open when a reply has no artifacts
+      // (a normal chat answer should not close the panel).
+      if (artifacts.length > 0) {
+        dispatch(setArtifacts(artifacts));
+      }
 
       if (response) {
-        dispatch(addMessage({ role: "assistant", content: response,images:response.images }));
+        dispatch(
+          addMessage({ role: "assistant", content: response, images, artifacts }),
+        );
       }
 
       // Name the conversation from its first prompt only.
@@ -161,7 +180,7 @@ const ChatInput = ({
         onSubmit={handleSubmit}
         className="mx-auto max-w-4xl rounded-2xl border border-white/10 bg-[#171a22] shadow-lg transition focus-within:border-white/20"
       >
-        <div className="flex items-center gap-1.5 overflow-x-auto px-4 pt-3 pb-1 no-scrollbar ">
+        <div className="flex items-center gap-1.5 overflow-x-auto px-4 pb-1 pt-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {AGENTS.map((agent) => {
             const Icon = agent.icon;
             const isSelected = selectedAgent === agent.id;
@@ -170,7 +189,8 @@ const ChatInput = ({
                 key={agent.id}
                 type="button"
                 onClick={() => setSelectedAgent(agent.id)}
-                className={`flex items-center gap-1.5 cursor-pointer rounded-full px-3 py-1.5 text-xs font-medium transition ${
+                aria-pressed={isSelected}
+                className={`flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium transition ${
                   isSelected
                     ? "bg-purple-600 text-white shadow"
                     : "bg-white/5 text-gray-400 hover:bg-white/10 hover:text-white"

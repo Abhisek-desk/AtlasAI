@@ -1,4 +1,4 @@
-import searchTool from "../config/tavily"
+import searchTool from "../config/tavily.js"
 
 
 export const searchAgent=async (state)=>{
