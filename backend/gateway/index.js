@@ -40,6 +40,13 @@ app.use(
   })
 );
 
+app.use(
+  "/api/billing",protect,
+  proxyWithHeader(process.env.BILLING_SERVICE, {
+    proxyReqPathResolver: (req) => `/billing${req.url}`,
+  })
+);
+
 app.get("/api/me",protect,getCurrentUser)
 
 app.get("/", (req, res) => {
