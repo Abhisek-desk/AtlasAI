@@ -1,6 +1,6 @@
 import { getModel } from "../config/llmModels.js";
 
-const VALID_AGENTS = ["chat", "search", "coding", "pdf", "ppt", "vision"];
+const VALID_AGENTS = ["chat", "search", "coding", "pdf", "ppt", "vision","pdfRag","imageAnalyzer"];
 
 const buildPrompt = (userPrompt) => `You are a router agent that routes the user query to the appropriate agent based on the query.
 You have the following agents available:
@@ -27,6 +27,18 @@ export const router = async (state) => {
   // A specific agent chosen in the UI is used as-is.
   if (VALID_AGENTS.includes(state.agent)) {
     return { agent: state.agent };
+  }
+  if(state.file.mimetype==="application/pdf"){
+    return {
+      ...state,
+      agent: "pdfRag" 
+    };
+  }
+  if(state.file.mimetype.startsWith==="image/"){
+    return {
+      ...state,
+      agent: "imageAnalyzer" 
+    };
   }
 
   // "auto" (or anything unknown): let the LLM decide.

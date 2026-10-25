@@ -64,6 +64,7 @@ export const chatAgent = async (state) => {
   }
 
   const response = await llm.invoke(messages);
+  await deductCredits(state.userId,"chat")
 
   return { aiResponse: response.content };
 };

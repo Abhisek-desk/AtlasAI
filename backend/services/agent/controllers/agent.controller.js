@@ -22,6 +22,8 @@ const withArtifactFiles = (text, artifacts) => {
 export const agent = async (req, res) => {
   try {
     const { prompt, conversationId, agent: selectedAgent } = req.body;
+    const userId=req.headers["x-user-id"]
+    const file=req.file
 
     if (!prompt || !conversationId) {
       return res.status(400).json({
@@ -39,6 +41,8 @@ export const agent = async (req, res) => {
       prompt,
       conversationId,
       agent: selectedAgent,
+      userId,
+      file
     });
 
     const aiResponse = result.aiResponse;

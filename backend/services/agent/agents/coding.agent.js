@@ -1,5 +1,6 @@
 import { getModel } from "../config/llmModels.js";
 import { getMemory } from "../config/memory.js";
+import deductCredits from "../utils/deductCredits.js";
 
 const MODEL_TIMEOUT_MS = 180000;
 const HISTORY_LIMIT = 6;
@@ -307,6 +308,9 @@ ${state.prompt}
           "\n\n> **Note:** the response hit the model's length limit, so the last file may be incomplete. Ask me to finish it or to split the project into smaller parts.";
       }
 
+      await deductCredits(state.userId,"coding")
+      
+
       return {
         ...state,
         // A real chat reply; the code itself lives in the artifact panel.
@@ -352,6 +356,7 @@ ${state.prompt}
     );
 
     const data = stripMarkdownFence(toText(res.content));
+    await deductCredits(state.userId,"coding")
 
     return {
       ...state,

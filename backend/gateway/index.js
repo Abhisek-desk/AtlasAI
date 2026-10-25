@@ -35,7 +35,7 @@ app.use(
 
 app.use(
   "/api/agent",protect,
-  proxy(process.env.AGENT_SERVICE, {
+  proxyWithHeader(process.env.AGENT_SERVICE, {
     proxyReqPathResolver: (req) => `/agent${req.url}`,
   })
 );
