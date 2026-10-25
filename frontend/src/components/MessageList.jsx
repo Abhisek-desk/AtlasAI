@@ -8,6 +8,7 @@ import {
   AlertCircle,
   ExternalLink,
   Code2,
+  Download,
 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -98,7 +99,9 @@ export const CodeBlock = ({ code, language = "text", label, bare = false }) => {
         </button>
       </div>
 
-      <div className={bare ? "min-h-0 flex-1 overflow-auto" : "overflow-x-auto"}>
+      <div
+        className={bare ? "min-h-0 flex-1 overflow-auto" : "overflow-x-auto"}
+      >
         <SyntaxHighlighter
           language={language}
           style={oneDark}
@@ -179,7 +182,10 @@ const MarkdownLink = ({ href, children }) => {
 
     setCard({
       above,
-      left: Math.max(8, Math.min(rect.left, window.innerWidth - CARD_WIDTH - 8)),
+      left: Math.max(
+        8,
+        Math.min(rect.left, window.innerWidth - CARD_WIDTH - 8),
+      ),
       top: above ? rect.top - 6 : rect.bottom + 6,
     });
   };
@@ -294,6 +300,123 @@ const MarkdownLink = ({ href, children }) => {
         </span>
       )}
     </>
+  );
+};
+
+/* -------------------------------------------------------------------------- */
+/*  Images in answers (e.g. generated images): preview + open + download      */
+/* -------------------------------------------------------------------------- */
+
+const getImageName = (src) => {
+  try {
+    const name = decodeURIComponent(
+      new URL(src).pathname.split("/").pop() || "",
+    );
+
+    return name || "image.png";
+  } catch {
+    return "image.png";
+  }
+};
+
+// Only <span>s are used because react-markdown renders images inside a <p>.
+const GeneratedImage = ({ src, alt }) => {
+  const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
+  const [downloading, setDownloading] = useState(false);
+
+  if (!src) return null;
+
+  const downloadImage = async () => {
+    setDownloading(true);
+
+    try {
+      const response = await fetch(src);
+
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+      const url = URL.createObjectURL(await response.blob());
+
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = getImageName(src);
+
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+    } catch (err) {
+      // Usually the bucket's CORS rules: open the image so it can be saved.
+      console.error("Download image error:", err);
+      window.open(src, "_blank", "noopener,noreferrer");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <span className="my-3 block w-full max-w-xl overflow-hidden rounded-2xl border border-white/10 bg-[#111318]">
+      {failed ? (
+        <span className="flex items-center gap-2 px-4 py-6 text-sm text-gray-400">
+          <AlertCircle size={16} className="shrink-0" />
+          This image could not be loaded. Its link may have expired.
+        </span>
+      ) : (
+        <a
+          href={src}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={`relative block ${loaded ? "" : "min-h-48"}`}
+        >
+          {!loaded && (
+            <span className="absolute inset-0 animate-pulse bg-white/5" />
+          )}
+
+          <img
+            src={src}
+            alt={alt || "Generated image"}
+            loading="lazy"
+            referrerPolicy="no-referrer"
+            onLoad={() => setLoaded(true)}
+            onError={() => setFailed(true)}
+            className={`block h-auto max-h-[28rem] w-full object-contain transition-opacity duration-300 ${
+              loaded ? "opacity-100" : "opacity-0"
+            }`}
+          />
+        </a>
+      )}
+
+      {!failed && (
+        <span className="flex items-center justify-between gap-3 border-t border-white/10 bg-[#1b1d24] px-3 py-2">
+          <span className="truncate text-xs text-slate-400">
+            {alt || "Image"}
+          </span>
+
+          <span className="flex shrink-0 items-center gap-3">
+            <a
+              href={src}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 text-xs text-slate-400 transition hover:text-white"
+            >
+              <ExternalLink size={14} />
+              Open
+            </a>
+
+            <button
+              type="button"
+              onClick={downloadImage}
+              disabled={downloading}
+              className="flex items-center gap-1 text-xs text-slate-400 transition hover:text-white disabled:opacity-50"
+            >
+              <Download size={14} />
+              {downloading ? "Saving..." : "Download"}
+            </button>
+          </span>
+        </span>
+      )}
+    </span>
   );
 };
 
@@ -429,19 +552,7 @@ const markdownComponents = {
   ),
 
   // ---- Images written in markdown ----------------------------------------
-  img: ({ src, alt }) =>
-    src ? (
-      <img
-        src={src}
-        alt={alt || ""}
-        loading="lazy"
-        referrerPolicy="no-referrer"
-        className="my-3 max-h-96 max-w-full rounded-xl border border-white/10 object-contain"
-        onError={(event) => {
-          event.currentTarget.style.display = "none";
-        }}
-      />
-    ) : null,
+  img: ({ src, alt }) => <GeneratedImage src={src} alt={alt} />,
 };
 
 /* -------------------------------------------------------------------------- */

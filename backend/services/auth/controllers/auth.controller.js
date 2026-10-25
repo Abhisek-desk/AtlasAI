@@ -122,3 +122,58 @@ export const logout = async (req, res) => {
     });
   }
 };
+
+// Called by the billing service after a verified payment.
+export const updateUserPayment = async (req, res) => {
+  try {
+    // The gateway exposes /api/auth publicly, so without this check anyone
+    // could give themselves credits.
+    const secret = process.env.INTERNAL_API_SECRET;
+    const received = String(req.headers["x-internal-secret"] || "");
+
+    if (
+      !secret ||
+      received.length !== secret.length ||
+      !crypto.timingSafeEqual(Buffer.from(received), Buffer.from(secret))
+    ) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const { plan, credits, userId, validity, sessionId } = req.body;
+
+    if (!userId || !plan || !Number.isFinite(credits) || credits <= 0) {
+      return res.status(400).json({ message: "Invalid payment update" });
+    }
+
+    const user = await User.findById(userId);
+
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    const days = Number(validity) > 0 ? Number(validity) : 30;
+
+    user.plan = plan;
+    user.credits += credits;
+    user.totalCredits += credits;
+    user.planExpiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+    await user.save();
+
+    // Refresh the session of the browser that paid, keeping its remaining
+    // lifetime. (Other devices pick the change up the next time they log in.)
+    if (sessionId) {
+      const key = `session:${sessionId}`;
+      const ttl = await redis.ttl(key);
+
+      if (ttl > 0) {
+        await redis.set(key, JSON.stringify(buildSessionData(user)), "EX", ttl);
+      }
+    }
+
+    return res.status(200).json({ success: true });
+  } catch (error) {
+    return res
+      .status(500)
+      .json({ message: `Update user payment error ${error}` });
+  }
+};

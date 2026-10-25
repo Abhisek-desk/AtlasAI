@@ -9,6 +9,11 @@ export const proxyWithHeader = (serviceUrl, options = {}) => {
         proxyReqOpts.headers["x-user-id"] = srcReq.user.userId;
       }
 
+      // Lets the billing service refresh this user's session after a payment.
+      if (srcReq.cookies?.session) {
+        proxyReqOpts.headers["x-session-id"] = srcReq.cookies.session;
+      }
+
       return proxyReqOpts;
     },
   });

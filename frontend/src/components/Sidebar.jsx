@@ -22,8 +22,11 @@ import {
 import { clearMessages } from "../redux/messageSlice.js";
 import { setUserData } from "../redux/userSlice.js";
 
+import BillingDrawer from "./BillingDrawer";
+
 const Sidebar = () => {
   const [collapsed, setCollapsed] = useState(false);
+  const [showBilling, setShowBilling] = useState(false);
 
   const dispatch = useDispatch();
   const navigate = useNavigate();
@@ -100,6 +103,20 @@ const Sidebar = () => {
 
   const userInitial = userName.charAt(0).toUpperCase();
 
+  // Plan and credits come from the session (kept up to date by the billing
+  // service after a payment).
+  const planId = userData?.plan || "free";
+  const planName = planId.charAt(0).toUpperCase() + planId.slice(1);
+
+  const credits = typeof userData?.credits === "number" ? userData.credits : null;
+  const totalCredits =
+    typeof userData?.totalCredits === "number" ? userData.totalCredits : null;
+
+  const creditPercent =
+    credits !== null && totalCredits
+      ? Math.max(0, Math.min(100, (credits / totalCredits) * 100))
+      : 0;
+
   return (
     <div
       className={`relative z-20 flex h-dvh shrink-0 flex-col overflow-hidden border-r border-[#263247] bg-[#0F172A] transition-all duration-200 ${
@@ -125,7 +142,7 @@ const Sidebar = () => {
               </span>
 
               <span className="hidden rounded-md border border-violet-400/20 bg-violet-400/10 px-2 py-1 text-[10px] font-medium text-violet-300 md:inline">
-                FREE
+                {planName.toUpperCase()}
               </span>
 
               <button
@@ -212,6 +229,35 @@ const Sidebar = () => {
 
         {/* Profile */}
         <div className="shrink-0 border-t border-[#263247] p-3">
+          {/* Credits */}
+          <button
+            type="button"
+            onClick={() => setShowBilling(true)}
+            title={`${credits ?? "—"} credits left · View plans`}
+            aria-label="View credits and plans"
+            className="mb-2 flex w-full min-w-0 items-center justify-center gap-2.5 rounded-xl border border-[#263247] bg-[#111A2E] px-3 py-2.5 text-left transition-colors hover:border-violet-400/30 hover:bg-[#1E293B] md:justify-start"
+          >
+            <Coins size={16} className="shrink-0 text-[#A78BFA]" />
+
+            {!collapsed && (
+              <span className="hidden min-w-0 flex-1 md:block">
+                <span className="flex items-center justify-between gap-2 text-xs">
+                  <span className="truncate font-medium text-[#F1F5F9]">
+                    {credits ?? "—"} credits
+                  </span>
+                  <span className="shrink-0 text-[#64748B]">{planName}</span>
+                </span>
+
+                <span className="mt-1.5 block h-1 overflow-hidden rounded-full bg-[#263247]">
+                  <span
+                    className="block h-full rounded-full bg-gradient-to-r from-[#7C3AED] to-[#6366F1] transition-all duration-500"
+                    style={{ width: `${creditPercent}%` }}
+                  />
+                </span>
+              </span>
+            )}
+          </button>
+
           <div
             className={`flex min-w-0 items-center gap-3 rounded-xl px-2 py-3 transition-colors hover:bg-[#1E293B] ${
               collapsed ? "justify-center" : "justify-center md:justify-start"
@@ -241,7 +287,9 @@ const Sidebar = () => {
                   {userName}
                 </p>
 
-                <div className="mt-1 text-xs text-[#64748B]">Free Plan</div>
+                <div className="mt-1 text-xs text-[#64748B]">
+                  {planName} Plan
+                </div>
               </div>
             )}
 
@@ -251,6 +299,7 @@ const Sidebar = () => {
                   type="button"
                   aria-label="Credits"
                   title="Credits"
+                  onClick={() => setShowBilling(true)}
                   className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[#94A3B8] transition-colors hover:bg-violet-500/10 hover:text-[#A78BFA]"
                 >
                   <Coins size={17} />
@@ -270,6 +319,8 @@ const Sidebar = () => {
           </div>
         </div>
       </div>
+
+      <BillingDrawer open={showBilling} onClose={() => setShowBilling(false)} />
     </div>
   );
 };

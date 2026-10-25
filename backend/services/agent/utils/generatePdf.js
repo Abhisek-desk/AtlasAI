@@ -1,4 +1,4 @@
-import { lineGap, moveDown, PDFDocument } from "pdfkit";
+import { PDFDocument } from "pdfkit";
 
 export const generatePdf = async (data) => {
   return new Promise((resolve, reject) => {
