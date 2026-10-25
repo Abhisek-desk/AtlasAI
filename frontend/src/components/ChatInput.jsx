@@ -12,6 +12,7 @@ import {
   Presentation,
   Image as ImageIcon,
   Globe,
+  X,
 } from "lucide-react";
 
 import api from "../../utils/axios.js";
@@ -27,6 +28,7 @@ import {
   setArtifacts,
   setMessageError,
 } from "../redux/messageSlice.js";
+import { useRef } from "react";
 
 const DEFAULT_TITLE = "New Chat";
 
@@ -53,6 +55,9 @@ const ChatInput = ({
   const currentTitle = useSelector(
     (state) => state.conversation.selectedConversation?.title,
   );
+
+  const [selectedFile, setSelectedFile] = useState(null);
+  const fileRef = useRef(null);
 
   const [message, setMessage] = useState(initialValue);
   const [selectedAgent, setSelectedAgent] = useState("auto");
@@ -84,6 +89,14 @@ const ChatInput = ({
         dispatch(addConversation(conversation));
       }
 
+      const formData = new FormData();
+      formData.append("prompt", value.trim());
+      formData.append("conversationId", conversation?._id);
+      formData.append("agent", selectedAgent.toLowerCase());
+      if (selectedFile) {
+        formData.append("file", selectedFile);
+      }
+
       dispatch(addMessage({ role: "user", content: text }));
 
       const { data } = await api.post("/api/agent/chat", {
@@ -100,7 +113,7 @@ const ChatInput = ({
             data?.reply ||
             data?.message ||
             data?.content;
-
+      setSelectedFile(null);
       const images = Array.isArray(data?.images) ? data.images : [];
       const artifacts = Array.isArray(data?.artifacts) ? data.artifacts : [];
 
@@ -112,7 +125,12 @@ const ChatInput = ({
 
       if (response) {
         dispatch(
-          addMessage({ role: "assistant", content: response, images, artifacts }),
+          addMessage({
+            role: "assistant",
+            content: response,
+            images,
+            artifacts,
+          }),
         );
       }
 
@@ -203,6 +221,38 @@ const ChatInput = ({
           })}
         </div>
 
+        {selectedFile && (
+          <div>
+            <div>
+              {selectedFile.type === "application/pdf" ? (
+                <FileText size={16} className="text-red-400" />
+              ) : (
+                selectedFile.type.startsWith("image/") && (
+                  <img
+                    src={URL.createObjectURL(selectedFile)}
+                    className="h-10 w-10 rounded-xl object-cover mt-3"
+                  />
+                )
+              )}
+              <div>
+                <span className="text-xs text-white">{selectedFile?.name}</span>
+                <span className="text-[10px] text-slate-500">
+                  {Math.ceil(selectedFile?.size)}
+                </span>
+              </div>
+              <button
+                className="ml-2"
+                onClick={() => {
+                  setSelectedFile(null);
+                  fileRef.current.value = "";
+                }}
+              >
+                <X size={14} className="text-slate-500 hover:text-white" />
+              </button>
+            </div>
+          </div>
+        )}
+
         <textarea
           value={message}
           onChange={(event) => setMessage(event.target.value)}
@@ -214,6 +264,19 @@ const ChatInput = ({
           className="max-h-48 min-h-14 w-full resize-none bg-transparent px-4 pt-2 text-sm text-white outline-none placeholder:text-gray-500 disabled:opacity-60"
         />
 
+        <input
+          type="file"
+          accept=".pdf,image/*file"
+          hidden
+          ref={fileRef}
+          onClick={(e) => {
+            const file = e.target.file[0];
+            if (file) {
+              setSelectedFile(file);
+            }
+          }}
+        />
+
         <div className="flex items-center justify-between px-3 pb-3">
           <div className="flex items-center gap-2">
             <button
@@ -221,6 +284,7 @@ const ChatInput = ({
               title="Attach file"
               disabled={disabled}
               className="rounded-lg p-2 text-gray-400 transition hover:bg-white/10 hover:text-white disabled:opacity-40"
+              onClick={() => fileRef.current.click()}
             >
               <Paperclip size={18} />
             </button>
