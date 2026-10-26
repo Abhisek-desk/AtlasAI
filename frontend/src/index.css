@@ -1,1 +1,27 @@
-@import "tailwindcss";  
+@import "tailwindcss";
+
+/* Dark app: avoid white flashes, native dark scrollbars/form controls, and the
+   grey tap highlight on phones. */
+html {
+  color-scheme: dark;
+  background: #0d0f14;
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  margin: 0;
+  background: #0d0f14;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#root {
+  min-height: 100dvh;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+  }
+}

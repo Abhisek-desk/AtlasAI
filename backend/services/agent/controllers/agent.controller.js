@@ -1,4 +1,5 @@
 import axios from "axios";
+import fs from "node:fs/promises";
 import { graph } from "../graph/graph.js";
 import { addMessage } from "../config/memory.js";
 
@@ -20,10 +21,20 @@ const withArtifactFiles = (text, artifacts) => {
 };
 
 export const agent = async (req, res) => {
+  const file=req.file
+
   try {
-    const { prompt, conversationId, agent: selectedAgent } = req.body;
+    const { conversationId, agent: selectedAgent } = req.body;
     const userId=req.headers["x-user-id"]
-    const file=req.file
+
+    // A file with no question gets a sensible default instead of an error.
+    const prompt =
+      req.body.prompt?.trim() ||
+      (file
+        ? file.mimetype === "application/pdf"
+          ? "Summarize this document."
+          : "Describe this image."
+        : "");
 
     if (!prompt || !conversationId) {
       return res.status(400).json({
@@ -34,7 +45,8 @@ export const agent = async (req, res) => {
     await axios.post(`${process.env.CHAT_SERVICE}/chat/save-message`, {
       conversationId,
       role: "user",
-      content: prompt,
+      // Remember which file the question was about.
+      content: file ? `${prompt}\n\n📎 ${file.originalname}` : prompt,
     });
 
     const result = await graph.invoke({
@@ -80,5 +92,10 @@ export const agent = async (req, res) => {
       message: "Agent error",
       error: error.response?.data || error.message,
     });
+  } finally {
+    // Uploads are temporary; the agents delete them too, so ignore "not found".
+    if (file?.path) {
+      fs.unlink(file.path).catch(() => {});
+    }
   }
 };

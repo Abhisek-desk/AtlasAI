@@ -22,7 +22,7 @@ import {
   setArtifacts,
 } from "../redux/messageSlice.js";
 
-const ChatArea = () => {
+const ChatArea = (onOpenSidebar) => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const { conversationId } = useParams();
@@ -130,7 +130,7 @@ const ChatArea = () => {
 
   return (
     <main className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[#0d0f14] text-white">
-      <Nav onNewChat={handleNewChat} />
+      <Nav onNewChat={handleNewChat} onMenuClick={onOpenSidebar} />
 
       <MessageList
         messages={messages}

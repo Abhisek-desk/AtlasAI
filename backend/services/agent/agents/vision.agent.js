@@ -4,6 +4,18 @@ import { uploadToS3 } from "../utils/uploadToS3.js";
 import { getFromS3 } from "../utils/getFromS3.js";
 import deductCredits from "../utils/deductCredits.js";
 
+const toText = (content) => {
+  if (typeof content === "string") return content;
+
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => (typeof part === "string" ? part : (part?.text ?? "")))
+      .join("");
+  }
+
+  return String(content ?? "");
+};
+
 export const visionAgent = async (state) => {
   try {
     const llm = await getModel("vision");
@@ -31,23 +43,38 @@ export const visionAgent = async (state) => {
       ${state.prompt}
     `);
 
-    const prompt = res.content.trim();
+    // Very long prompts make the URL too long for the image service.
+    const prompt = toText(res.content).trim().slice(0, 600);
 
-    const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}`;
+    const imageUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(prompt)}?width=1024&height=1024&nologo=true`;
 
     const imageRes = await axios.get(imageUrl, {
       responseType: "arraybuffer",
+      timeout: 120000,
     });
-    await deductCredits(state.userId,"vision")
+
+    // The service can answer 200 with an error page instead of a picture.
+    const contentType = String(imageRes.headers["content-type"] || "image/png")
+      .split(";")[0]
+      .trim();
+
+    if (!contentType.startsWith("image/")) {
+      throw new Error(`Image service returned ${contentType}`);
+    }
 
     const buffer = Buffer.from(imageRes.data);
-    const filename = `image-${Date.now()}.png`;
+    const extension = contentType.split("/")[1].replace("jpeg", "jpg");
+    const filename = `image-${Date.now()}.${extension}`;
 
-    await uploadToS3(filename, buffer, "image/png");
+    await uploadToS3(filename, buffer, contentType);
 
-    const downloadUrl = await getFromS3(filename, 24*60);
+    // 24 hours in seconds (it was 24 * 60 = 24 minutes).
+    const downloadUrl = await getFromS3(filename, 24 * 60 * 60);
 
-        return {
+    // Charge only once the image really exists.
+    await deductCredits(state.userId, "vision");
+
+    return {
       ...state,
       aiResponse: `
 # 🖼️ Image Generated Successfully!
@@ -66,4 +93,3 @@ export const visionAgent = async (state) => {
     };
   }
 };
-

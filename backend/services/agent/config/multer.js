@@ -12,17 +12,25 @@ const storage = multer.diskStorage({
     cb(null, uploadDir);
   },
   filename(req, file, cb) {
-    cb(null, `${Date.now()}-${file.originalname}`);
+    // Keep the name readable but never trust it as a path.
+    const safeName = path
+      .basename(file.originalname)
+      .replace(/[^\w.-]+/g, "_");
+
+    cb(null, `${Date.now()}-${safeName}`);
   },
 });
 
 const fileFilter = (req, file, cb) => {
+  // This used to be `file.mimetype = "application/pdf" || ...`, an assignment:
+  // it accepted every file and rewrote its type to PDF.
   if (
-    (file.mimetype = "application/pdf" || file.mimetype.startsWith("image/"))
+    file.mimetype === "application/pdf" ||
+    file.mimetype.startsWith("image/")
   ) {
     cb(null, true);
   } else {
-    cb(new Error("Only PDF and Imagges are allowed"));
+    cb(new Error("Only PDF and Images are allowed"));
   }
 };
 

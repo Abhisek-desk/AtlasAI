@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate } from "react-router-dom";
 import {
@@ -17,6 +17,7 @@ import {
 
 import api from "../../utils/axios.js";
 import { createConversation } from "../features/createConversation.js";
+import { getCurrentUser } from "../features/getCurrentUser.js";
 
 import {
   addConversation,
@@ -28,9 +29,13 @@ import {
   setArtifacts,
   setMessageError,
 } from "../redux/messageSlice.js";
-import { useRef } from "react";
+import { setUserData } from "../redux/userSlice.js";
 
 const DEFAULT_TITLE = "New Chat";
+
+// Same limit as the upload middleware on the server.
+const MAX_FILE_SIZE = 20 * 1024 * 1024;
+const MAX_TEXTAREA_HEIGHT = 192;
 
 const AGENTS = [
   { id: "auto", label: "Auto", icon: Sparkles },
@@ -41,6 +46,32 @@ const AGENTS = [
   { id: "vision", label: "vision", icon: ImageIcon },
   { id: "search", label: "Search", icon: Globe },
 ];
+
+const isPdfFile = (file) =>
+  file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+
+const formatSize = (bytes = 0) => {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+};
+
+// Used when a file is attached but nothing was typed.
+const defaultPromptFor = (file) =>
+  isPdfFile(file) ? "Summarize this document." : "Describe this image.";
+
+// Phones: Enter adds a new line (the send button sends), like most chat apps.
+const isTouchDevice = () =>
+  typeof window !== "undefined" &&
+  Boolean(window.matchMedia?.("(pointer: coarse)").matches);
+
+const growTextarea = (element) => {
+  if (!element) return;
+
+  element.style.height = "auto";
+  element.style.height = `${Math.min(element.scrollHeight, MAX_TEXTAREA_HEIGHT)}px`;
+};
 
 const ChatInput = ({
   conversationId,
@@ -58,12 +89,71 @@ const ChatInput = ({
 
   const [selectedFile, setSelectedFile] = useState(null);
   const fileRef = useRef(null);
+  const textareaRef = useRef(null);
 
   const [message, setMessage] = useState(initialValue);
   const [selectedAgent, setSelectedAgent] = useState("auto");
 
+  // Thumbnail for image attachments. The object URL is created when a file is
+  // picked and revoked when it is replaced, removed or the input unmounts.
+  const [previewUrl, setPreviewUrl] = useState(null);
+  const previewUrlRef = useRef(null);
+
+  const replacePreview = (file) => {
+    if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+
+    previewUrlRef.current = file?.type.startsWith("image/")
+      ? URL.createObjectURL(file)
+      : null;
+
+    setPreviewUrl(previewUrlRef.current);
+  };
+
+  useEffect(
+    () => () => {
+      if (previewUrlRef.current) URL.revokeObjectURL(previewUrlRef.current);
+    },
+    [],
+  );
+
+  // A prefilled suggestion can be several lines long.
+  useEffect(() => {
+    growTextarea(textareaRef.current);
+  }, []);
+
+  const clearFile = () => {
+    setSelectedFile(null);
+    replacePreview(null);
+
+    // Lets the same file be picked again afterwards.
+    if (fileRef.current) fileRef.current.value = "";
+  };
+
+  const handleFileChange = (event) => {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    if (!isPdfFile(file) && !file.type.startsWith("image/")) {
+      dispatch(setMessageError("Only PDF files and images can be attached."));
+      clearFile();
+      return;
+    }
+
+    if (file.size > MAX_FILE_SIZE) {
+      dispatch(setMessageError("That file is too large (max 20 MB)."));
+      clearFile();
+      return;
+    }
+
+    dispatch(setMessageError(null));
+    setSelectedFile(file);
+    replacePreview(file);
+  };
+
   const handleSendMessage = async ({ prompt, conversationId }) => {
-    const text = prompt?.trim();
+    const file = selectedFile;
+    const text = prompt?.trim() || (file ? defaultPromptFor(file) : "");
 
     if (!text || sending) return;
 
@@ -89,21 +179,27 @@ const ChatInput = ({
         dispatch(addConversation(conversation));
       }
 
+      // multipart/form-data: works with and without an attached file.
       const formData = new FormData();
-      formData.append("prompt", value.trim());
-      formData.append("conversationId", conversation?._id);
+      formData.append("prompt", text);
+      formData.append("conversationId", activeConversationId);
       formData.append("agent", selectedAgent.toLowerCase());
-      if (selectedFile) {
-        formData.append("file", selectedFile);
+
+      if (file) {
+        formData.append("file", file);
       }
 
-      dispatch(addMessage({ role: "user", content: text }));
+      dispatch(
+        addMessage({
+          role: "user",
+          content: file ? `${text}\n\n📎 ${file.name}` : text,
+        }),
+      );
 
-      const { data } = await api.post("/api/agent/chat", {
-        prompt: text,
-        conversationId: activeConversationId,
-        agent: selectedAgent,
-      });
+      // Like the text box, the attachment is cleared as soon as it is sent.
+      clearFile();
+
+      const { data } = await api.post("/api/agent/chat", formData);
 
       const response =
         typeof data === "string"
@@ -113,7 +209,7 @@ const ChatInput = ({
             data?.reply ||
             data?.message ||
             data?.content;
-      setSelectedFile(null);
+
       const images = Array.isArray(data?.images) ? data.images : [];
       const artifacts = Array.isArray(data?.artifacts) ? data.artifacts : [];
 
@@ -133,6 +229,11 @@ const ChatInput = ({
           }),
         );
       }
+
+      // Credits were spent on the server: refresh the balance in the sidebar.
+      getCurrentUser().then((user) => {
+        if (user) dispatch(setUserData(user));
+      });
 
       // Name the conversation from its first prompt only.
       if (createdNow || !currentTitle || currentTitle === DEFAULT_TITLE) {
@@ -163,7 +264,18 @@ const ChatInput = ({
         error.response?.data || error.message,
       );
 
-      dispatch(setMessageError("Failed to send message."));
+      const status = error.response?.status;
+
+      dispatch(
+        setMessageError(
+          status === 402
+            ? error.response?.data?.message ||
+                "You're out of credits. Tap the credits card in the menu to add more."
+            : status === 413
+              ? "That file is too large (max 20 MB)."
+              : "Failed to send message.",
+        ),
+      );
     } finally {
       setSending(false);
     }
@@ -174,31 +286,34 @@ const ChatInput = ({
 
     const prompt = message.trim();
 
-    if (!prompt || disabled || sending) return;
+    if ((!prompt && !selectedFile) || disabled || sending) return;
 
     setMessage("");
+
+    if (textareaRef.current) textareaRef.current.style.height = "auto";
 
     handleSendMessage({ prompt, conversationId });
   };
 
   const handleKeyDown = (event) => {
-    // Ignore Enter while an IME composition is in progress.
+    // Ignore Enter while an IME composition is in progress, and on phones.
     if (
       event.key === "Enter" &&
       !event.shiftKey &&
-      !event.nativeEvent.isComposing
+      !event.nativeEvent.isComposing &&
+      !isTouchDevice()
     ) {
       handleSubmit(event);
     }
   };
 
   return (
-    <div className="w-full px-3 pb-4 pt-2 sm:px-5 lg:px-8">
+    <div className="w-full px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-5 sm:pb-4 lg:px-8">
       <form
         onSubmit={handleSubmit}
         className="mx-auto max-w-4xl rounded-2xl border border-white/10 bg-[#171a22] shadow-lg transition focus-within:border-white/20"
       >
-        <div className="flex items-center gap-1.5 overflow-x-auto px-4 pb-1 pt-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="flex items-center gap-1.5 overflow-x-auto px-3 pb-1 pt-3 sm:px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {AGENTS.map((agent) => {
             const Icon = agent.icon;
             const isSelected = selectedAgent === agent.id;
@@ -222,69 +337,76 @@ const ChatInput = ({
         </div>
 
         {selectedFile && (
-          <div>
-            <div>
-              {selectedFile.type === "application/pdf" ? (
-                <FileText size={16} className="text-red-400" />
+          <div className="px-3 pt-3 sm:px-4">
+            <div className="inline-flex max-w-full items-center gap-3 rounded-xl border border-white/10 bg-white/5 py-2 pl-2 pr-3">
+              {isPdfFile(selectedFile) ? (
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-red-500/10">
+                  <FileText size={18} className="text-red-400" />
+                </span>
               ) : (
-                selectedFile.type.startsWith("image/") && (
+                previewUrl && (
                   <img
-                    src={URL.createObjectURL(selectedFile)}
-                    className="h-10 w-10 rounded-xl object-cover mt-3"
+                    src={previewUrl}
+                    alt=""
+                    className="h-10 w-10 shrink-0 rounded-lg object-cover"
                   />
                 )
               )}
-              <div>
-                <span className="text-xs text-white">{selectedFile?.name}</span>
+
+              <div className="flex min-w-0 flex-col">
+                <span className="truncate text-xs text-white">
+                  {selectedFile?.name}
+                </span>
                 <span className="text-[10px] text-slate-500">
-                  {Math.ceil(selectedFile?.size)}
+                  {formatSize(selectedFile?.size)}
                 </span>
               </div>
+
               <button
-                className="ml-2"
-                onClick={() => {
-                  setSelectedFile(null);
-                  fileRef.current.value = "";
-                }}
+                type="button"
+                aria-label="Remove attachment"
+                className="ml-1 shrink-0 rounded-md p-1 text-slate-500 transition hover:bg-white/10 hover:text-white"
+                onClick={clearFile}
               >
-                <X size={14} className="text-slate-500 hover:text-white" />
+                <X size={14} />
               </button>
             </div>
           </div>
         )}
 
         <textarea
+          ref={textareaRef}
           value={message}
-          onChange={(event) => setMessage(event.target.value)}
+          onChange={(event) => {
+            setMessage(event.target.value);
+            growTextarea(event.target);
+          }}
           onKeyDown={handleKeyDown}
           placeholder="Message AtlasAI..."
-          disabled={disabled}
+          readOnly={disabled}
+          enterKeyHint="enter"
           rows={1}
           autoFocus={Boolean(initialValue)}
-          className="max-h-48 min-h-14 w-full resize-none bg-transparent px-4 pt-2 text-sm text-white outline-none placeholder:text-gray-500 disabled:opacity-60"
+          className="max-h-48 min-h-14 w-full resize-none bg-transparent px-4 pt-2 text-base text-white outline-none placeholder:text-gray-500 read-only:opacity-60 sm:text-sm"
         />
 
         <input
           type="file"
-          accept=".pdf,image/*file"
+          accept=".pdf,application/pdf,image/*"
           hidden
           ref={fileRef}
-          onClick={(e) => {
-            const file = e.target.file[0];
-            if (file) {
-              setSelectedFile(file);
-            }
-          }}
+          onChange={handleFileChange}
         />
 
-        <div className="flex items-center justify-between px-3 pb-3">
-          <div className="flex items-center gap-2">
+        <div className="flex items-center justify-between px-2 pb-3 sm:px-3">
+          <div className="flex items-center gap-1 sm:gap-2">
             <button
               type="button"
               title="Attach file"
+              aria-label="Attach file"
               disabled={disabled}
-              className="rounded-lg p-2 text-gray-400 transition hover:bg-white/10 hover:text-white disabled:opacity-40"
-              onClick={() => fileRef.current.click()}
+              className="rounded-lg p-2.5 text-gray-400 transition hover:bg-white/10 hover:text-white disabled:opacity-40 sm:p-2"
+              onClick={() => fileRef.current?.click()}
             >
               <Paperclip size={18} />
             </button>
@@ -292,8 +414,9 @@ const ChatInput = ({
             <button
               type="button"
               title="Voice input"
+              aria-label="Voice input"
               disabled={disabled}
-              className="rounded-lg p-2 text-gray-400 transition hover:bg-white/10 hover:text-white disabled:opacity-40"
+              className="rounded-lg p-2.5 text-gray-400 transition hover:bg-white/10 hover:text-white disabled:opacity-40 sm:p-2"
             >
               <Mic size={18} />
             </button>
@@ -305,16 +428,17 @@ const ChatInput = ({
 
           <button
             type="submit"
-            disabled={!message.trim() || disabled || sending}
+            disabled={(!message.trim() && !selectedFile) || disabled || sending}
             title="Send message"
-            className="flex h-9 w-9 items-center justify-center rounded-xl bg-white text-black transition hover:bg-gray-200 disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-400"
+            aria-label="Send message"
+            className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-black transition hover:bg-gray-200 disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-400 sm:h-9 sm:w-9"
           >
             <ArrowUp size={19} />
           </button>
         </div>
       </form>
 
-      <p className="mx-auto mt-3 max-w-4xl text-center text-[11px] text-gray-500">
+      <p className="mx-auto mt-2 max-w-4xl text-center text-[11px] text-gray-500 sm:mt-3">
         AtlasAI can make mistakes. Verify important information.
       </p>
     </div>

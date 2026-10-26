@@ -1,37 +1,81 @@
-import fs, { stat } from "fs";
+import fs from "fs";
 import { PDFParse } from "pdf-parse";
 import { RecursiveCharacterTextSplitter } from "@langchain/textsplitters";
 import { vectorStore } from "../config/vectorDb.js";
 import { getModel } from "../config/llmModels.js";
-import { HumanMessage } from "@langchain/core/messages";
+import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import deductCredits from "../utils/deductCredits.js";
 
+// Short PDFs fit in the prompt, so they skip the vector database entirely
+// (faster, cheaper, and no Qdrant or embeddings needed).
+const DIRECT_CONTEXT_CHARS = 12000;
+
+const toText = (content) => {
+  if (typeof content === "string") return content;
+
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => (typeof part === "string" ? part : (part?.text ?? "")))
+      .join("");
+  }
+
+  return String(content ?? "");
+};
+
 export const pdfRag = async (state) => {
+  const filePath = state.file?.path;
+  let store = null;
+  let collectionName = "";
+
   try {
-    const buffer = fs.readFileSync(state.file.path);
+    if (!filePath) {
+      throw new Error("No PDF was uploaded");
+    }
+
+    const buffer = fs.readFileSync(filePath);
     const pdf = new PDFParse({
       data: buffer,
     });
-    const result = await pdf.getText();
-    const text = result.text;
 
-    const splitter = new RecursiveCharacterTextSplitter({
-      chunkSize: 1000,
-      chunkOverlap: 200,
-    });
-    const docs = await splitter.createDocuments([text]);
-    const collectionName = `pdf-${Date.now()}`;
-    const store = await vectorStore(docs, collectionName);
+    let text = "";
 
-    const relevantDocs = await store.similaritySearch(state.prompt, 5);
+    try {
+      const result = await pdf.getText();
+      text = result.text || "";
+    } finally {
+      await pdf.destroy?.();
+    }
 
-    const context = relevantDocs.map((d) => d.pageContent).join("\n\n");
+    // Scanned PDFs contain pictures of text, not text.
+    if (!text.trim()) {
+      return {
+        ...state,
+        aiResponse:
+          "I couldn't read any text in this PDF. It may be a scanned document or an image-only PDF.",
+      };
+    }
+
+    let context = text;
+
+    if (text.length > DIRECT_CONTEXT_CHARS) {
+      const splitter = new RecursiveCharacterTextSplitter({
+        chunkSize: 1000,
+        chunkOverlap: 200,
+      });
+      const docs = await splitter.createDocuments([text]);
+      collectionName = `pdf-${Date.now()}`;
+      store = await vectorStore(docs, collectionName);
+
+      const relevantDocs = await store.similaritySearch(state.prompt, 5);
+
+      context = relevantDocs.map((d) => d.pageContent).join("\n\n");
+    }
 
     const llm = await getModel("pdfRag");
 
     const messages = [
       new SystemMessage(`
-        You are AtlasAI PDF assisatnt.
+        You are AtlasAI PDF assistant.
         Rules:
           - Answer ONLY from the uploaded PDF.
           - Never make up information
@@ -48,7 +92,7 @@ export const pdfRag = async (state) => {
     await deductCredits(state.userId,"pdf")
     return{
       ...state,
-      aiResponse:response.content
+      aiResponse:toText(response.content)
     }
 
   } catch (error) {
@@ -58,6 +102,18 @@ export const pdfRag = async (state) => {
       aiResponse:"Failed to analyze pdf"
     }
   }finally{
-    fs.unlinkSync(state.file.path)
+    // Temporary upload; also guard against a missing file.
+    if (filePath) {
+      fs.promises.unlink(filePath).catch(() => {})
+    }
+
+    // The collection belongs to this single question, so don't let them pile up.
+    if (store && collectionName) {
+      try {
+        await store.client.deleteCollection(collectionName)
+      } catch (cleanupError) {
+        console.error("Could not delete the PDF collection:", cleanupError.message)
+      }
+    }
   }
 };

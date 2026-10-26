@@ -8,7 +8,10 @@ const messageSlice = createSlice({
     loading: false,
     error: null,
     artifacts: [],
+    // Desktop: the side panel is expanded (true) or collapsed (false).
     artifactOpen: true,
+    // Mobile / tablet: the full-screen artifact view is open.
+    artifactMobileOpen: false,
   },
 
   reducers: {
@@ -42,6 +45,7 @@ const messageSlice = createSlice({
     clearMessages: (state) => {
       state.messages = [];
       state.artifacts = [];
+      state.artifactMobileOpen = false;
       state.error = null;
     },
 
@@ -60,11 +64,17 @@ const messageSlice = createSlice({
 
       if (state.artifacts.length > 0) {
         state.artifactOpen = true;
+      } else {
+        state.artifactMobileOpen = false;
       }
     },
 
     setArtifactOpen: (state, action) => {
       state.artifactOpen = Boolean(action.payload);
+    },
+
+    setArtifactMobileOpen: (state, action) => {
+      state.artifactMobileOpen = Boolean(action.payload);
     },
   },
 });
@@ -78,6 +88,7 @@ export const {
   setMessageError,
   setArtifacts,
   setArtifactOpen,
+  setArtifactMobileOpen,
 } = messageSlice.actions;
 
 export default messageSlice.reducer;

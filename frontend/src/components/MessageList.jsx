@@ -15,7 +15,8 @@ import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 
-import { setArtifacts } from "../redux/messageSlice.js";
+import LoadingAnimation from "./LoadingAnimation";
+import { setArtifactMobileOpen, setArtifacts } from "../redux/messageSlice.js";
 
 const SUGGESTIONS = [
   "Write a Netflix clone",
@@ -732,7 +733,11 @@ const MessageList = ({
 
   // Stable reference so memoised messages don't re-render on every update.
   const openArtifacts = useCallback(
-    (artifacts) => dispatch(setArtifacts(artifacts)),
+    (artifacts) => {
+      dispatch(setArtifacts(artifacts));
+      // Below lg the artifact opens full screen; on desktop this is ignored.
+      dispatch(setArtifactMobileOpen(true));
+    },
     [dispatch],
   );
 
@@ -752,7 +757,7 @@ const MessageList = ({
   if (loading) {
     return (
       <div className="flex min-h-0 flex-1 items-center justify-center">
-        <div className="h-7 w-7 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+        <LoadingAnimation variant="page" label="Loading conversation..." />
       </div>
     );
   }
@@ -813,19 +818,11 @@ const MessageList = ({
 
           {sending && (
             <div className="flex gap-3 sm:gap-4">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-white/10">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-white/10 sm:h-9 sm:w-9">
                 <Bot size={19} />
               </div>
 
-              <div
-                className="flex items-center gap-1.5 pt-3"
-                role="status"
-                aria-label="AtlasAI is responding"
-              >
-                <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:-0.3s]" />
-                <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400 [animation-delay:-0.15s]" />
-                <span className="h-2 w-2 animate-bounce rounded-full bg-gray-400" />
-              </div>
+              <LoadingAnimation variant="typing" />
             </div>
           )}
 

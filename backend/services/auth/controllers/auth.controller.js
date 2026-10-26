@@ -5,6 +5,50 @@ import app from "../config/firebase.js";
 import User from "../models/user.model.js";
 import redis from "../../../shared/redis/redis.js";
 
+// What the gateway keeps in Redis for a logged-in user (returned by /api/me).
+const buildSessionData = (user) => ({
+  userId: user._id.toString(),
+  name: user.name,
+  email: user.email,
+  avatar: user.avatar,
+  plan: user.plan,
+  credits: user.credits,
+  totalCredits: user.totalCredits,
+  planExpiresAt: user.planExpiresAt,
+});
+
+// Only other services (billing, agent) may call the credit endpoints. The
+// gateway exposes /api/auth to everyone, so without this anybody could give
+// themselves credits or drain someone else's.
+const isInternalRequest = (req) => {
+  const secret = process.env.INTERNAL_API_SECRET;
+  const received = String(req.headers["x-internal-secret"] || "");
+
+  return Boolean(
+    secret &&
+      received.length === secret.length &&
+      crypto.timingSafeEqual(Buffer.from(received), Buffer.from(secret)),
+  );
+};
+
+// Writes the user's current plan/credits into their session so /api/me (and
+// the sidebar) show them straight away, keeping the session's remaining life.
+// `sessionIdHint` is the browser session that paid; otherwise the user's most
+// recent session (remembered at login) is used.
+const refreshSession = async (user, sessionIdHint) => {
+  const sessionId =
+    sessionIdHint || (await redis.get(`user-session:${user._id}`));
+
+  if (!sessionId) return;
+
+  const key = `session:${sessionId}`;
+  const ttl = await redis.ttl(key);
+
+  if (ttl > 0) {
+    await redis.set(key, JSON.stringify(buildSessionData(user)), "EX", ttl);
+  }
+};
+
 export const login = async (req, res) => {
   try {
     const { token } = req.body;
@@ -47,20 +91,19 @@ export const login = async (req, res) => {
     // 3. Create a Redis session
     const sessionId = crypto.randomUUID();
 
-    const sessionData = {
-      userId: user._id.toString(),
-      name: user.name,
-      email: user.email,
-      avatar: user.avatar,
-      plan: user.plan,
-      credits: user.credits,
-      totalCredits: user.totalCredits,
-      planExpiresAt: user.planExpiresAt,
-    };
+    const sessionData = buildSessionData(user);
 
     await redis.set(
       `session:${sessionId}`,
       JSON.stringify(sessionData),
+      "EX",
+      7 * 24 * 60 * 60,
+    );
+
+    // Lets the credit endpoints find this user's session later on.
+    await redis.set(
+      `user-session:${user._id}`,
+      sessionId,
       "EX",
       7 * 24 * 60 * 60,
     );
@@ -84,6 +127,10 @@ export const login = async (req, res) => {
         name: user.name,
         email: user.email,
         avatar: user.avatar,
+        plan: user.plan,
+        credits: user.credits,
+        totalCredits: user.totalCredits,
+        planExpiresAt: user.planExpiresAt,
       },
     });
   } catch (error) {
@@ -129,16 +176,7 @@ export const logout = async (req, res) => {
 
 export const updateUserPayment = async (req, res) => {
   try {
-    // The gateway exposes /api/auth publicly, so without this check anyone
-    // could give themselves credits.
-    const secret = process.env.INTERNAL_API_SECRET;
-    const received = String(req.headers["x-internal-secret"] || "");
-
-    if (
-      !secret ||
-      received.length !== secret.length ||
-      !crypto.timingSafeEqual(Buffer.from(received), Buffer.from(secret))
-    ) {
+    if (!isInternalRequest(req)) {
       return res.status(403).json({ message: "Forbidden" });
     }
 
@@ -162,16 +200,7 @@ export const updateUserPayment = async (req, res) => {
     user.planExpiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
     await user.save();
 
-    // Refresh the session of the browser that paid, keeping its remaining
-    // lifetime. (Other devices pick the change up the next time they log in.)
-    if (sessionId) {
-      const key = `session:${sessionId}`;
-      const ttl = await redis.ttl(key);
-
-      if (ttl > 0) {
-        await redis.set(key, JSON.stringify(buildSessionData(user)), "EX", ttl);
-      }
-    }
+    await refreshSession(user, sessionId);
 
     return res.status(200).json({ success: true });
   } catch (error) {
@@ -181,51 +210,52 @@ export const updateUserPayment = async (req, res) => {
   }
 };
 
-export const deductCredits = async () => {
-  try {
-    const { userId, agent } = req.body;
-    const COST = {
-      chat: 1,
-      search: 5,
-      coding: 10,
-      pdf: 10,
-      ppt: 10,
-      vision: 10,
-    };
+const COST = {
+  chat: 1,
+  search: 5,
+  coding: 10,
+  pdf: 10,
+  ppt: 10,
+  vision: 10,
+};
 
-    const user = await User.findById(userId);
+// Called by the agent service after a request succeeded.
+export const deductCredits = async (req, res) => {
+  try {
+    if (!isInternalRequest(req)) {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const { userId, agent } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ message: "userId is required" });
+    }
+
+    const requiredCredits = Object.hasOwn(COST, agent) ? COST[agent] : 1;
+
+    // One atomic update: two requests at the same moment can't spend the same
+    // credits twice, and the balance can never go below zero.
+    const user = await User.findOneAndUpdate(
+      { _id: userId, credits: { $gte: requiredCredits } },
+      { $inc: { credits: -requiredCredits } },
+      { new: true },
+    );
 
     if (!user) {
-      return res.status(400).json({ message: "User not found" });
+      const exists = await User.exists({ _id: userId });
+
+      return res
+        .status(exists ? 402 : 404)
+        .json({ message: exists ? "Not enough credit" : "User not found" });
     }
-    const requiredCredits = COST[agent] || 1;
-    if (user.credits < requiredCredits) {
-      return res.status(400).json({ message: "Not enough credit" });
-    }
-    user.credits -= requiredCredits;
-    await user.save();
 
-    const sessionId = crypto.randomUUID();
+    // Before, a brand-new random session was written here, so the user's real
+    // session (and the sidebar) never saw the new balance.
+    await refreshSession(user);
 
-    const sessionData = {
-      userId: user._id.toString(),
-      name: user.name,
-      email: user.email,
-      avatar: user.avatar,
-      plan: user.plan,
-      credits: user.credits,
-      totalCredits: user.totalCredits,
-      planExpiresAt: user.planExpiresAt,
-    };
-
-    await redis.set(
-      `session:${sessionId}`,
-      JSON.stringify(sessionData),
-      "EX",
-      7 * 24 * 60 * 60,
-    );
     return res.status(200).json({ success: true, credits: user.credits });
   } catch (error) {
-    return res.status(400).json({ message: `deduct credits error ${error}` });
+    return res.status(500).json({ message: `deduct credits error ${error}` });
   }
 };

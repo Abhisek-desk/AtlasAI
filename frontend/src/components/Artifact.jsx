@@ -6,13 +6,42 @@ import {
   Eye,
   PanelRightClose,
   PanelRightOpen,
+  X,
 } from "lucide-react";
 import Editor from "@monaco-editor/react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { motion } from "motion/react";
 
-import { setArtifactOpen } from "../redux/messageSlice.js";
+import LoadingAnimation from "./LoadingAnimation";
+import {
+  setArtifactMobileOpen,
+  setArtifactOpen,
+} from "../redux/messageSlice.js";
+
+// Same breakpoint as Tailwind's `lg`: side panel on desktop, full screen below.
+const DESKTOP_QUERY = "(min-width: 1024px)";
+
+const subscribeToDesktop = (callback) => {
+  const query = window.matchMedia(DESKTOP_QUERY);
+
+  query.addEventListener("change", callback);
+
+  return () => query.removeEventListener("change", callback);
+};
+
+const useIsDesktop = () =>
+  useSyncExternalStore(
+    subscribeToDesktop,
+    () => window.matchMedia(DESKTOP_QUERY).matches,
+    () => true,
+  );
 
 const NO_EDITS = {};
 
@@ -142,6 +171,7 @@ const downloadFile = (file) => {
 
 const Artifact = () => {
   const dispatch = useDispatch();
+  const isDesktop = useIsDesktop();
 
   const [view, setView] = useState("preview");
   const [activeName, setActiveName] = useState(null);
@@ -150,7 +180,9 @@ const Artifact = () => {
   const [copied, setCopied] = useState(false);
   const copyTimerRef = useRef(null);
 
-  const { artifacts, artifactOpen } = useSelector((state) => state.message);
+  const { artifacts, artifactOpen, artifactMobileOpen } = useSelector(
+    (state) => state.message,
+  );
 
   const collapsed = artifactOpen === false;
   const artifact = artifacts?.[0];
@@ -175,10 +207,28 @@ const Artifact = () => {
 
   const previewDoc = useMemo(() => buildPreviewDoc(files), [files]);
 
+  const showMobileView = !isDesktop && artifactMobileOpen && files.length > 0;
+
   useEffect(() => () => clearTimeout(copyTimerRef.current), []);
+
+  // Esc closes the full-screen view.
+  useEffect(() => {
+    if (!showMobileView) return;
+
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") dispatch(setArtifactMobileOpen(false));
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [showMobileView, dispatch]);
 
   // Only show the panel when this conversation has an artifact.
   if (files.length === 0) return null;
+
+  // Below lg the artifact is opened from the chat card, not shown by default.
+  if (!isDesktop && !artifactMobileOpen) return null;
 
   const activeFile = files.find((file) => file.name === activeName) || files[0];
   const canPreview = Boolean(previewDoc);
@@ -207,7 +257,7 @@ const Artifact = () => {
     }
   };
 
-  if (collapsed) {
+  if (isDesktop && collapsed) {
     return (
       <motion.div
         initial={{ opacity: 0, x: 20 }}
@@ -225,11 +275,11 @@ const Artifact = () => {
     );
   }
 
-  return (
-    <div className="hidden lg:flex h-full w-96 xl:w-[32rem] border-l border-white/[0.06] flex-col overflow-hidden bg-zinc-950 shrink-0 text-zinc-100">
-      {/* Header */}
-      <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-white/[0.06] bg-zinc-900/50">
-        <div className="flex items-center gap-3 min-w-0">
+  // Shared by the desktop panel and the full-screen phone view.
+  const header = (
+    <div className="flex shrink-0 items-center justify-between gap-2 px-3 py-3 border-b border-white/[0.06] bg-zinc-900/50 sm:gap-3 sm:px-4">
+      <div className="flex items-center gap-2 min-w-0 sm:gap-3">
+        {isDesktop ? (
           <button
             onClick={() => dispatch(setArtifactOpen(false))}
             className="p-1.5 text-zinc-400 hover:text-white hover:bg-white/[0.08] rounded-lg transition-colors cursor-pointer"
@@ -237,120 +287,155 @@ const Artifact = () => {
           >
             <PanelRightClose className="w-5 h-5" />
           </button>
-          <div className="p-1.5 bg-blue-500/10 text-blue-400 rounded-lg flex items-center justify-center">
-            <Code2 className="w-4 h-4" />
-          </div>
-          <div className="text-sm font-medium truncate text-zinc-200">
-            {artifact?.title || "Artifact"}
-          </div>
+        ) : (
+          <button
+            onClick={() => dispatch(setArtifactMobileOpen(false))}
+            className="p-2 text-zinc-400 hover:text-white hover:bg-white/[0.08] rounded-lg transition-colors cursor-pointer"
+            title="Close"
+            aria-label="Close artifact"
+          >
+            <X className="w-5 h-5" />
+          </button>
+        )}
+        <div className="hidden p-1.5 bg-blue-500/10 text-blue-400 rounded-lg items-center justify-center sm:flex">
+          <Code2 className="w-4 h-4" />
         </div>
-
-        <div className="flex shrink-0 items-center gap-1">
-          {canPreview && (
-            <div className="flex rounded-lg bg-white/[0.06] p-0.5 text-xs font-medium">
-              <button
-                onClick={() => setView("preview")}
-                className={`flex cursor-pointer items-center gap-1 rounded-md px-2.5 py-1 transition-colors ${
-                  currentView === "preview"
-                    ? "bg-white/10 text-white"
-                    : "text-zinc-400 hover:text-white"
-                }`}
-              >
-                <Eye className="w-3.5 h-3.5" />
-                Preview
-              </button>
-              <button
-                onClick={() => setView("code")}
-                className={`flex cursor-pointer items-center gap-1 rounded-md px-2.5 py-1 transition-colors ${
-                  currentView === "code"
-                    ? "bg-white/10 text-white"
-                    : "text-zinc-400 hover:text-white"
-                }`}
-              >
-                <Code2 className="w-3.5 h-3.5" />
-                Code
-              </button>
-            </div>
-          )}
-
-          <button
-            onClick={copyFile}
-            className="p-1.5 text-zinc-400 hover:text-white hover:bg-white/[0.08] rounded-lg transition-colors cursor-pointer"
-            title={`Copy ${activeFile.name}`}
-          >
-            {copied ? (
-              <Check className="w-4 h-4" />
-            ) : (
-              <Copy className="w-4 h-4" />
-            )}
-          </button>
-
-          <button
-            onClick={() => downloadFile(activeFile)}
-            className="p-1.5 text-zinc-400 hover:text-white hover:bg-white/[0.08] rounded-lg transition-colors cursor-pointer"
-            title={`Download ${activeFile.name}`}
-          >
-            <Download className="w-4 h-4" />
-          </button>
+        <div className="text-sm font-medium truncate text-zinc-200">
+          {artifact?.title || "Artifact"}
         </div>
       </div>
 
-      {/* Body */}
-      {currentView === "preview" ? (
-        <iframe
-          title="Preview"
-          srcDoc={previewDoc}
-          sandbox="allow-scripts allow-forms allow-modals"
-          className="min-h-0 w-full flex-1 bg-white"
-        />
-      ) : (
-        <div className="flex min-h-0 flex-1 flex-col">
-          {files.length > 1 && (
-            <div className="flex shrink-0 gap-1.5 overflow-x-auto border-b border-white/[0.06] px-3 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
-              {files.map((file) => (
-                <button
-                  key={file.name}
-                  onClick={() => setActiveName(file.name)}
-                  className={`flex max-w-[180px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
-                    file.name === activeFile.name
-                      ? "bg-white/10 text-white"
-                      : "text-zinc-500 hover:bg-white/[0.05] hover:text-zinc-200"
-                  }`}
-                >
-                  <span className="truncate">{file.name}</span>
-                  {editedFiles[file.name] !== undefined && (
-                    <span
-                      title="Edited"
-                      className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400"
-                    />
-                  )}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Monaco editor: edits update the preview and downloads */}
-          <div className="min-h-0 flex-1">
-            <Editor
-              height="100%"
-              path={`${artifactId}/${activeFile.name}`}
-              language={getMonacoLanguage(activeFile.name)}
-              value={activeFile.content}
-              theme="atlas-dark"
-              beforeMount={defineTheme}
-              onChange={handleEdit}
-              options={EDITOR_OPTIONS}
-              loading={
-                <div className="flex h-full items-center justify-center text-xs text-zinc-500">
-                  Loading editor...
-                </div>
-              }
-            />
+      <div className="flex shrink-0 items-center gap-1">
+        {canPreview && (
+          <div className="flex rounded-lg bg-white/[0.06] p-0.5 text-xs font-medium">
+            <button
+              onClick={() => setView("preview")}
+              aria-label="Preview"
+              className={`flex cursor-pointer items-center gap-1 rounded-md px-2 py-1.5 transition-colors sm:px-2.5 sm:py-1 ${
+                currentView === "preview"
+                  ? "bg-white/10 text-white"
+                  : "text-zinc-400 hover:text-white"
+              }`}
+            >
+              <Eye className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Preview</span>
+            </button>
+            <button
+              onClick={() => setView("code")}
+              aria-label="Code"
+              className={`flex cursor-pointer items-center gap-1 rounded-md px-2 py-1.5 transition-colors sm:px-2.5 sm:py-1 ${
+                currentView === "code"
+                  ? "bg-white/10 text-white"
+                  : "text-zinc-400 hover:text-white"
+              }`}
+            >
+              <Code2 className="w-3.5 h-3.5" />
+              <span className="hidden sm:inline">Code</span>
+            </button>
           </div>
+        )}
+
+        <button
+          onClick={copyFile}
+          className="p-2 text-zinc-400 hover:text-white hover:bg-white/[0.08] rounded-lg transition-colors cursor-pointer sm:p-1.5"
+          title={`Copy ${activeFile.name}`}
+          aria-label="Copy file"
+        >
+          {copied ? (
+            <Check className="w-4 h-4" />
+          ) : (
+            <Copy className="w-4 h-4" />
+          )}
+        </button>
+
+        <button
+          onClick={() => downloadFile(activeFile)}
+          className="p-2 text-zinc-400 hover:text-white hover:bg-white/[0.08] rounded-lg transition-colors cursor-pointer sm:p-1.5"
+          title={`Download ${activeFile.name}`}
+          aria-label="Download file"
+        >
+          <Download className="w-4 h-4" />
+        </button>
+      </div>
+    </div>
+  );
+
+  const body =
+    currentView === "preview" ? (
+      <iframe
+        title="Preview"
+        srcDoc={previewDoc}
+        sandbox="allow-scripts allow-forms allow-modals"
+        className="min-h-0 w-full flex-1 bg-white"
+      />
+    ) : (
+      <div className="flex min-h-0 flex-1 flex-col">
+        {files.length > 1 && (
+          <div className="flex shrink-0 gap-1.5 overflow-x-auto border-b border-white/[0.06] px-3 py-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+            {files.map((file) => (
+              <button
+                key={file.name}
+                onClick={() => setActiveName(file.name)}
+                className={`flex max-w-[180px] shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                  file.name === activeFile.name
+                    ? "bg-white/10 text-white"
+                    : "text-zinc-500 hover:bg-white/[0.05] hover:text-zinc-200"
+                }`}
+              >
+                <span className="truncate">{file.name}</span>
+                {editedFiles[file.name] !== undefined && (
+                  <span
+                    title="Edited"
+                    className="h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400"
+                  />
+                )}
+              </button>
+            ))}
+          </div>
+        )}
+
+        {/* Monaco editor: edits update the preview and downloads */}
+        <div className="min-h-0 flex-1">
+          <Editor
+            height="100%"
+            path={`${artifactId}/${activeFile.name}`}
+            language={getMonacoLanguage(activeFile.name)}
+            value={activeFile.content}
+            theme="atlas-dark"
+            beforeMount={defineTheme}
+            onChange={handleEdit}
+            options={EDITOR_OPTIONS}
+            loading={
+              <div className="flex h-full items-center justify-center">
+                <LoadingAnimation variant="spinner" label="Loading editor" />
+              </div>
+            }
+          />
         </div>
-      )}
+      </div>
+    );
+
+  if (!isDesktop) {
+    return (
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={artifact?.title || "Artifact"}
+        className="fixed inset-0 z-40 flex h-dvh flex-col bg-zinc-950 pb-[env(safe-area-inset-bottom)] text-zinc-100"
+      >
+        {header}
+        {body}
+      </div>
+    );
+  }
+
+  return (
+    <div className="hidden lg:flex h-full w-80 xl:w-[28rem] 2xl:w-[32rem] border-l border-white/[0.06] flex-col overflow-hidden bg-zinc-950 shrink-0 text-zinc-100">
+      {header}
+      {body}
     </div>
   );
 };
+
 
 export default Artifact;

@@ -1,5 +1,12 @@
 import redis from "../../shared/redis/redis.js"
 
+export const requireCredits=(req,res,next)=>{
+    const credits=req.user?.credits
+    if(typeof credits==="number" && credits<=0){
+        return res.status(402).json({message:"You're out of credits. Add credits to keep going."})
+    }
+    next()
+}
 
 const protect=async (req,res,next)=>{
     try{

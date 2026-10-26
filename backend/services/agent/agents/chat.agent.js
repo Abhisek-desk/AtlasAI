@@ -6,6 +6,7 @@ import {
 
 import { getModel } from "../config/llmModels.js";
 import { getMemory } from "../config/memory.js";
+import deductCredits from "../utils/deductCredits.js";
 
 // Only send the text results to the LLM (not image URLs or metadata).
 const formatSearchContext = (searchResults) => {

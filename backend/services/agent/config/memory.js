@@ -1,4 +1,3 @@
-
 import redis from "../../../shared/redis/redis.js";
 import getMessages from "../utils/getMessages.js";
 
@@ -19,14 +18,13 @@ export const getMemory = async (conversationId) => {
   }
 
   const messages = await getMessages(conversationId);
-  const history = Array.isArray(messages) ? messages : [];
+  if (!Array.isArray(messages)) {
+    return [];
+  }
 
-  await redis.set(
-    key,
-    JSON.stringify(history),
-    "EX",
-    24 * 60 * 60
-  );
+  const history = messages;
+
+  await redis.set(key, JSON.stringify(history), "EX", 24 * 60 * 60);
 
   return history;
 };
@@ -38,19 +36,18 @@ export const addMessage = async (conversationId, role, content) => {
   // Defensive check: ensure messages is always an array.
   const history = Array.isArray(messages) ? messages : [];
 
-  history.push({ role, content });
+  const last = history[history.length - 1];
+
+  if (!(last && last.role === role && last.content === content)) {
+    history.push({ role, content });
+  }
 
   // Keep only the latest 20 messages.
   if (history.length > 20) {
     history.splice(0, history.length - 20);
   }
 
-  await redis.set(
-    key,
-    JSON.stringify(history),
-    "EX",
-    24 * 60 * 60
-  );
+  await redis.set(key, JSON.stringify(history), "EX", 24 * 60 * 60);
 
   return history;
 };

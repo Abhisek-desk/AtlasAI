@@ -1,27 +1,53 @@
-import { Plus, MoreHorizontal } from "lucide-react";
+import { Plus, MoreHorizontal, Menu } from "lucide-react";
 import { useSelector } from "react-redux";
 
-const Nav = ({ onNewChat }) => {
+// Opens the sidebar drawer on phones; hidden from md up, where the sidebar is
+// always visible.
+const MenuButton = ({ onClick }) => (
+  <button
+    type="button"
+    onClick={onClick}
+    aria-label="Open menu"
+    className="-ml-1 shrink-0 rounded-xl p-2 text-gray-300 transition hover:bg-white/10 hover:text-white md:hidden"
+  >
+    <Menu size={20} />
+  </button>
+);
+
+const Nav = ({ onNewChat, onMenuClick }) => {
   const selectedConversation = useSelector(
     (state) => state.conversation.selectedConversation,
   );
 
   const messageCount = useSelector((state) => state.message.messages.length);
 
-  if (!selectedConversation) return null;
+  // No conversation yet: only phones need a bar, to reach the sidebar.
+  if (!selectedConversation) {
+    return (
+      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-white/5 px-3 md:hidden">
+        <MenuButton onClick={onMenuClick} />
+
+        <span className="text-[15px] font-semibold tracking-tight text-gray-100">
+          Atlas<span className="text-[#A78BFA]">AI</span>
+        </span>
+      </header>
+    );
+  }
 
   const title = selectedConversation.title || selectedConversation.name || "New chat";
 
   return (
-    <header className="flex h-16 shrink-0 items-center justify-between border-b border-white/5 px-3 sm:px-5 lg:px-8">
-      <div className="flex min-w-0 items-center gap-3">
+    <header className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-white/5 px-3 sm:px-5 md:h-16 lg:px-8">
+      <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+        <MenuButton onClick={onMenuClick} />
+
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <h2 className="truncate text-sm font-semibold text-gray-100">
               {title}
             </h2>
 
-            <span className="shrink-0 rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium text-gray-400">
+            <span className="hidden shrink-0 rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-[10px] font-medium text-gray-400 sm:inline">
               {messageCount} {messageCount === 1 ? "message" : "messages"}
             </span>
           </div>
@@ -34,6 +60,7 @@ const Nav = ({ onNewChat }) => {
         <button
           type="button"
           onClick={onNewChat}
+          aria-label="New chat"
           className="flex items-center gap-2 rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-sm text-gray-200 transition hover:bg-white/10"
         >
           <Plus size={16} />
@@ -43,6 +70,7 @@ const Nav = ({ onNewChat }) => {
         <button
           type="button"
           title="More options"
+          aria-label="More options"
           className="rounded-xl p-2 text-gray-400 transition hover:bg-white/10 hover:text-white"
         >
           <MoreHorizontal size={20} />

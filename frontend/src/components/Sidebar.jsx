@@ -4,6 +4,7 @@ import {
   LogOut,
   Coins,
   MessageSquare,
+  X,
 } from "lucide-react";
 
 import { useEffect, useState } from "react";
@@ -24,7 +25,9 @@ import { setUserData } from "../redux/userSlice.js";
 
 import BillingDrawer from "./BillingDrawer";
 
-const Sidebar = () => {
+// Phones: a slide-in drawer (mobileOpen / onMobileClose come from Home).
+// md and up: a normal column that can be collapsed to an icon rail.
+const Sidebar = ({ mobileOpen = false, onMobileClose }) => {
   const [collapsed, setCollapsed] = useState(false);
   const [showBilling, setShowBilling] = useState(false);
 
@@ -37,6 +40,13 @@ const Sidebar = () => {
 
   const userData = useSelector((state) => state.user?.userData);
   const isLoggedIn = Boolean(userData);
+
+  // Labels are always visible in the phone drawer, and hidden on md+ only
+  // while the sidebar is collapsed to its icon rail.
+  const labelHidden = collapsed ? "md:hidden" : "";
+  const railCenter = collapsed ? "md:justify-center" : "";
+
+  const closeMobile = () => onMobileClose?.();
 
   // Load conversations once the user is logged in (the request is
   // unauthorised before that, and would otherwise never be retried).
@@ -60,7 +70,22 @@ const Sidebar = () => {
     };
   }, [isLoggedIn, dispatch]);
 
+  // Esc closes the phone drawer.
+  useEffect(() => {
+    if (!mobileOpen) return;
+
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") onMobileClose?.();
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [mobileOpen, onMobileClose]);
+
   const handleNewChat = async () => {
+    closeMobile();
+
     dispatch(clearSelectedConversation());
     dispatch(clearMessages());
 
@@ -76,11 +101,15 @@ const Sidebar = () => {
   };
 
   const handleSelectConversation = (conversation) => {
+    closeMobile();
+
     // ChatArea reads the id from the URL, selects it and loads its messages.
     navigate(`/chat/${conversation._id}`);
   };
 
   const handleLogout = async () => {
+    closeMobile();
+
     await logout();
 
     dispatch(setUserData(null));
@@ -89,6 +118,11 @@ const Sidebar = () => {
     dispatch(clearMessages());
 
     navigate("/");
+  };
+
+  const openBilling = () => {
+    closeMobile();
+    setShowBilling(true);
   };
 
   const userName =
@@ -118,72 +152,96 @@ const Sidebar = () => {
       : 0;
 
   return (
-    <div
-      className={`relative z-20 flex h-dvh shrink-0 flex-col overflow-hidden border-r border-[#263247] bg-[#0F172A] transition-all duration-200 ${
-        collapsed ? "w-[72px]" : "w-[72px] md:w-[270px]"
-      }`}
-    >
-      <div className="flex h-full min-h-0 flex-col">
-        {/* Header */}
-        <div className="flex h-[64px] shrink-0 items-center gap-2.5 border-b border-[#263247] px-4">
-          <button
-            type="button"
-            aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
-            onClick={() => setCollapsed((prev) => !prev)}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[#94A3B8] transition-colors hover:bg-[#1E293B] hover:text-white"
-          >
-            <PanelLeftIcon size={18} />
-          </button>
+    <>
+      {/* Dim the page behind the phone drawer */}
+      <div
+        aria-hidden="true"
+        onClick={closeMobile}
+        className={`fixed inset-0 z-30 bg-black/60 backdrop-blur-sm transition-opacity duration-200 md:hidden ${
+          mobileOpen ? "opacity-100" : "pointer-events-none opacity-0"
+        }`}
+      />
 
-          {!collapsed && (
-            <>
-              <span className="hidden flex-1 text-[16px] font-semibold tracking-tight text-[#F1F5F9] md:block">
-                Atlas<span className="text-[#A78BFA]">AI</span>
-              </span>
+      <aside
+        className={`fixed inset-y-0 left-0 z-40 flex h-dvh w-[280px] max-w-[85vw] flex-col overflow-hidden border-r border-[#263247] bg-[#0F172A] transition-[translate,transform,width,visibility] duration-200 ease-out md:static md:z-20 md:max-w-none md:shrink-0 md:translate-x-0 md:shadow-none md:visible ${
+          mobileOpen
+            ? "visible translate-x-0 shadow-2xl shadow-black/50"
+            : "invisible -translate-x-full"
+        } ${collapsed ? "md:w-[72px]" : "md:w-[270px]"}`}
+      >
+        <div className="flex h-full min-h-0 flex-col">
+          {/* Header */}
+          <div className="flex h-[64px] shrink-0 items-center gap-2.5 border-b border-[#263247] px-4">
+            <button
+              type="button"
+              aria-label={collapsed ? "Expand sidebar" : "Collapse sidebar"}
+              onClick={() => setCollapsed((prev) => !prev)}
+              className="hidden h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[#94A3B8] transition-colors hover:bg-[#1E293B] hover:text-white md:flex"
+            >
+              <PanelLeftIcon size={18} />
+            </button>
 
-              <span className="hidden rounded-md border border-violet-400/20 bg-violet-400/10 px-2 py-1 text-[10px] font-medium text-violet-300 md:inline">
-                {planName.toUpperCase()}
-              </span>
+            <span
+              className={`flex-1 text-[16px] font-semibold tracking-tight text-[#F1F5F9] ${labelHidden}`}
+            >
+              Atlas<span className="text-[#A78BFA]">AI</span>
+            </span>
 
-              <button
-                type="button"
-                aria-label="New chat"
-                onClick={handleNewChat}
-                className="hidden h-8 w-8 items-center justify-center rounded-lg text-[#94A3B8] transition-colors hover:bg-[#1E293B] hover:text-[#A78BFA] md:flex"
-              >
-                <SquarePen size={17} />
-              </button>
-            </>
-          )}
-        </div>
+            <span
+              className={`rounded-md border border-violet-400/20 bg-violet-400/10 px-2 py-1 text-[10px] font-medium text-violet-300 ${labelHidden}`}
+            >
+              {planName.toUpperCase()}
+            </span>
 
-        {/* New Chat Button */}
-        <div className="shrink-0 px-3 pt-5">
-          <button
-            type="button"
-            onClick={handleNewChat}
-            aria-label="New Chat"
-            className={`flex h-[46px] w-full items-center justify-center gap-2.5 rounded-xl bg-gradient-to-r from-[#7C3AED] to-[#6366F1] text-sm font-semibold text-white shadow-lg shadow-violet-950/30 transition-all duration-200 hover:brightness-110 active:scale-[0.98] ${
-              collapsed ? "px-0" : "px-3"
-            }`}
-          >
-            <SquarePen size={18} className="shrink-0" />
+            <button
+              type="button"
+              aria-label="New chat"
+              onClick={handleNewChat}
+              className={`hidden h-8 w-8 items-center justify-center rounded-lg text-[#94A3B8] transition-colors hover:bg-[#1E293B] hover:text-[#A78BFA] ${
+                collapsed ? "" : "md:flex"
+              }`}
+            >
+              <SquarePen size={17} />
+            </button>
 
-            {!collapsed && <span className="hidden md:inline">New Chat</span>}
-          </button>
-        </div>
+            {/* Phones only: close the drawer */}
+            <button
+              type="button"
+              aria-label="Close menu"
+              onClick={closeMobile}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[#94A3B8] transition-colors hover:bg-[#1E293B] hover:text-white md:hidden"
+            >
+              <X size={18} />
+            </button>
+          </div>
 
-        {/* Recent Chats */}
-        <div className="mt-7 min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3">
-          {!collapsed && (
-            <p className="mb-3 hidden px-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#64748B] md:block">
+          {/* New Chat Button */}
+          <div className="shrink-0 px-3 pt-5">
+            <button
+              type="button"
+              onClick={handleNewChat}
+              aria-label="New Chat"
+              className={`flex h-[46px] w-full items-center justify-center gap-2.5 rounded-xl bg-gradient-to-r from-[#7C3AED] to-[#6366F1] px-3 text-sm font-semibold text-white shadow-lg shadow-violet-950/30 transition-all duration-200 hover:brightness-110 active:scale-[0.98] ${
+                collapsed ? "md:px-0" : ""
+              }`}
+            >
+              <SquarePen size={18} className="shrink-0" />
+
+              <span className={labelHidden}>New Chat</span>
+            </button>
+          </div>
+
+          {/* Recent Chats */}
+          <div className="mt-7 min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3">
+            <p
+              className={`mb-3 px-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#64748B] ${labelHidden}`}
+            >
               Recent
             </p>
-          )}
 
-          <div className="space-y-1">
-            {Array.isArray(conversations) && conversations.length > 0
-              ? conversations.map((conversation) => {
+            <div className="space-y-1">
+              {Array.isArray(conversations) && conversations.length > 0 ? (
+                conversations.map((conversation) => {
                   const isSelected =
                     selectedConversation?._id === conversation._id;
 
@@ -193,7 +251,7 @@ const Sidebar = () => {
                       type="button"
                       title={conversation.title || "New Chat"}
                       onClick={() => handleSelectConversation(conversation)}
-                      className={`group flex w-full min-w-0 items-center justify-center gap-3 rounded-lg border px-3 py-2.5 text-left text-sm transition-all duration-150 md:justify-start ${
+                      className={`group flex w-full min-w-0 items-center justify-start gap-3 rounded-lg border px-3 py-3 text-left text-sm transition-all duration-150 md:py-2.5 ${railCenter} ${
                         isSelected
                           ? "border-violet-400/15 bg-violet-500/10 text-violet-200"
                           : "border-transparent text-[#94A3B8] hover:bg-[#1E293B] hover:text-[#F1F5F9]"
@@ -208,39 +266,38 @@ const Sidebar = () => {
                         }`}
                       />
 
-                      {!collapsed && (
-                        <span className="hidden truncate md:block">
-                          {conversation.title || "New Chat"}
-                        </span>
-                      )}
+                      <span className={`truncate ${labelHidden}`}>
+                        {conversation.title || "New Chat"}
+                      </span>
                     </button>
                   );
                 })
-              : !collapsed && (
-                  <p className="hidden px-3 py-4 text-center text-sm leading-6 text-[#64748B] md:block">
-                    No recent conversations
-                    <span className="mt-1 block text-xs text-[#475569]">
-                      Start a new chat to begin
-                    </span>
-                  </p>
-                )}
+              ) : (
+                <p
+                  className={`px-3 py-4 text-center text-sm leading-6 text-[#64748B] ${labelHidden}`}
+                >
+                  No recent conversations
+                  <span className="mt-1 block text-xs text-[#475569]">
+                    Start a new chat to begin
+                  </span>
+                </p>
+              )}
+            </div>
           </div>
-        </div>
 
-        {/* Profile */}
-        <div className="shrink-0 border-t border-[#263247] p-3">
-          {/* Credits */}
-          <button
-            type="button"
-            onClick={() => setShowBilling(true)}
-            title={`${credits ?? "—"} credits left · View plans`}
-            aria-label="View credits and plans"
-            className="mb-2 flex w-full min-w-0 items-center justify-center gap-2.5 rounded-xl border border-[#263247] bg-[#111A2E] px-3 py-2.5 text-left transition-colors hover:border-violet-400/30 hover:bg-[#1E293B] md:justify-start"
-          >
-            <Coins size={16} className="shrink-0 text-[#A78BFA]" />
+          {/* Profile */}
+          <div className="shrink-0 border-t border-[#263247] p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            {/* Credits */}
+            <button
+              type="button"
+              onClick={openBilling}
+              title={`${credits ?? "—"} credits left · View plans`}
+              aria-label="View credits and plans"
+              className={`mb-2 flex w-full min-w-0 items-center justify-start gap-2.5 rounded-xl border border-[#263247] bg-[#111A2E] px-3 py-2.5 text-left transition-colors hover:border-violet-400/30 hover:bg-[#1E293B] ${railCenter}`}
+            >
+              <Coins size={16} className="shrink-0 text-[#A78BFA]" />
 
-            {!collapsed && (
-              <span className="hidden min-w-0 flex-1 md:block">
+              <span className={`min-w-0 flex-1 ${labelHidden}`}>
                 <span className="flex items-center justify-between gap-2 text-xs">
                   <span className="truncate font-medium text-[#F1F5F9]">
                     {credits ?? "—"} credits
@@ -255,34 +312,30 @@ const Sidebar = () => {
                   />
                 </span>
               </span>
-            )}
-          </button>
+            </button>
 
-          <div
-            className={`flex min-w-0 items-center gap-3 rounded-xl px-2 py-3 transition-colors hover:bg-[#1E293B] ${
-              collapsed ? "justify-center" : "justify-center md:justify-start"
-            }`}
-          >
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-violet-400/20 bg-[#1E293B]">
-              {userPhoto ? (
-                <img
-                  src={userPhoto}
-                  alt={userName}
-                  referrerPolicy="no-referrer"
-                  className="h-full w-full object-cover"
-                  onError={(event) => {
-                    event.currentTarget.style.display = "none";
-                  }}
-                />
-              ) : (
-                <span className="text-sm font-semibold text-white">
-                  {userInitial}
-                </span>
-              )}
-            </div>
+            <div
+              className={`flex min-w-0 items-center justify-start gap-3 rounded-xl px-2 py-3 transition-colors hover:bg-[#1E293B] ${railCenter}`}
+            >
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-violet-400/20 bg-[#1E293B]">
+                {userPhoto ? (
+                  <img
+                    src={userPhoto}
+                    alt={userName}
+                    referrerPolicy="no-referrer"
+                    className="h-full w-full object-cover"
+                    onError={(event) => {
+                      event.currentTarget.style.display = "none";
+                    }}
+                  />
+                ) : (
+                  <span className="text-sm font-semibold text-white">
+                    {userInitial}
+                  </span>
+                )}
+              </div>
 
-            {!collapsed && (
-              <div className="hidden min-w-0 flex-1 md:block">
+              <div className={`min-w-0 flex-1 ${labelHidden}`}>
                 <p className="truncate text-sm font-medium text-[#F1F5F9]">
                   {userName}
                 </p>
@@ -291,16 +344,14 @@ const Sidebar = () => {
                   {planName} Plan
                 </div>
               </div>
-            )}
 
-            {!collapsed && (
-              <div className="hidden items-center gap-1 md:flex">
+              <div className={`flex items-center gap-1 ${labelHidden}`}>
                 <button
                   type="button"
                   aria-label="Credits"
                   title="Credits"
-                  onClick={() => setShowBilling(true)}
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[#94A3B8] transition-colors hover:bg-violet-500/10 hover:text-[#A78BFA]"
+                  onClick={openBilling}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[#94A3B8] transition-colors hover:bg-violet-500/10 hover:text-[#A78BFA] md:h-8 md:w-8"
                 >
                   <Coins size={17} />
                 </button>
@@ -309,19 +360,19 @@ const Sidebar = () => {
                   type="button"
                   aria-label="Log out"
                   title="Log out"
-                  className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-[#94A3B8] transition-colors hover:bg-red-500/10 hover:text-red-400"
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[#94A3B8] transition-colors hover:bg-red-500/10 hover:text-red-400 md:h-8 md:w-8"
                   onClick={handleLogout}
                 >
                   <LogOut size={17} />
                 </button>
               </div>
-            )}
+            </div>
           </div>
         </div>
-      </div>
 
-      <BillingDrawer open={showBilling} onClose={() => setShowBilling(false)} />
-    </div>
+        <BillingDrawer open={showBilling} onClose={() => setShowBilling(false)} />
+      </aside>
+    </>
   );
 };
 

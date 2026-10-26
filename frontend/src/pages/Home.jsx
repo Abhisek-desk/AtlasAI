@@ -7,11 +7,17 @@ import { setUserData } from "../redux/userSlice.js";
 import Sidebar from "../components/Sidebar.jsx";
 import ChatArea from "../components/ChatArea.jsx";
 import Artifact from "../components/Artifact.jsx";
+// 1. first import line
+import { useCallback, useState } from "react";
+
 
 const Home = () => {
   const { userData } = useSelector((state) => state.user);
   const dispatch = useDispatch();
 
+  const [mobileOpen, setMobileOpen] = useState(false);
+  const openSidebar = useCallback(() => setMobileOpen(true), []);
+  const closeSidebar = useCallback(() => setMobileOpen(false), []);
   const handleLogin = async (token) => {
     try {
       const { data } = await api.post(
@@ -49,10 +55,10 @@ const Home = () => {
 
   return (
     <div className="flex h-dvh w-full overflow-hidden bg-[#0d0f14] text-white">
-      <Sidebar />
+      <Sidebar mobileOpen={mobileOpen} onMobileClose={closeSidebar} />
 
       <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
-        <ChatArea />
+        <ChatArea onOpenSidebar={openSidebar} />
         <Artifact />
       </div>
 
