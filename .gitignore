@@ -4,3 +4,4 @@ node_modules/
 !.env.example
 serviceAccountKey.json
 **/serviceAccountKey.json
+**/generated/

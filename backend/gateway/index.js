@@ -57,6 +57,13 @@ app.use(
   }),
 );
 
+app.use(
+  "/api/files",
+  proxy(process.env.AGENT_SERVICE, {
+    proxyReqPathResolver: (req) => `/agent/files${req.url}`,
+  })
+);
+
 app.get("/api/me", protect, getCurrentUser);
 
 app.get("/", (req, res) => {
