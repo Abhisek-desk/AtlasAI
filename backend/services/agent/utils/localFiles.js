@@ -105,18 +105,46 @@ export const saveFile = async (filename, buffer) => {
   return filename;
 };
 
-// A link like https://gateway/api/files/name.pdf?exp=...&sig=...
+let warnedAboutBaseUrl = false;
+
+// PUBLIC_API_URL must be a full address such as http://localhost:5000. A bare
+// "5000" or "localhost:5000" used to produce a link the browser treated as a
+// page of the app (/chat/5000/api/files/...), so those values are repaired.
+const getBaseUrl = () => {
+  const raw = (process.env.PUBLIC_API_URL || "").trim().replace(/\/+$/, "");
+
+  if (!raw) return "";
+
+  let url = raw;
+
+  if (/^:?\d+$/.test(raw)) {
+    url = `http://localhost:${raw.replace(":", "")}`;
+  } else if (!/^https?:\/\//i.test(raw)) {
+    url = `http://${raw}`;
+  }
+
+  if (url !== raw && !warnedAboutBaseUrl) {
+    warnedAboutBaseUrl = true;
+    console.warn(
+      `PUBLIC_API_URL="${raw}" is not a full address, using "${url}". Set it to something like http://localhost:5000`,
+    );
+  }
+
+  return url;
+};
+
+// A link like http://localhost:5000/api/files/name.pdf?exp=...&sig=...
 export const createSignedUrl = (filename, expiresIn = 600) => {
   if (!isSafeName(filename)) {
     throw new Error(`Unsafe or unsupported file name: ${filename}`);
   }
 
   // Must be the address the BROWSER uses to reach the gateway.
-  const baseUrl = (process.env.PUBLIC_API_URL || "").replace(/\/+$/, "");
+  const baseUrl = getBaseUrl();
 
   if (!baseUrl) {
     throw new Error(
-      "Set PUBLIC_API_URL in the agent service .env (the gateway address, e.g. http://localhost:5000)",
+      "Set PUBLIC_API_URL in the agent service .env to the gateway address, e.g. http://localhost:5000",
     );
   }
 
