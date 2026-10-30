@@ -1,3 +1,4 @@
+import { checkAgentLimit } from "../config/agentlimit.js"
 import { getModel } from "../config/llmModels.js"
 import deductCredits from "../utils/deductCredits.js"
 import { generatePpt } from "../utils/generatePpt.js"
@@ -63,6 +64,7 @@ const normalizeDeck = (data) => {
 
 export const pptAgent=async (state)=>{
     try {
+        await checkAgentLimit(state.userId, "ppt");
         const llm=await getModel("ppt")
         const prompt=`You are a professional presentation designer.
         

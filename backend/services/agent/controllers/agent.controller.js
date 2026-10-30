@@ -20,7 +20,7 @@ const withArtifactFiles = (text, artifacts) => {
   return `${text}\n\n${fileText}`;
 };
 
-export const agent = async (req, res) => {
+export const agent = async (req, res, err) => {
   const file=req.file
 
   try {
@@ -87,6 +87,7 @@ export const agent = async (req, res) => {
     return res.status(200).json({ aiResponse, images, artifacts });
   } catch (error) {
     console.error("Agent error:", error.response?.data || error.message);
+    next(error)
 
     return res.status(500).json({
       message: "Agent error",

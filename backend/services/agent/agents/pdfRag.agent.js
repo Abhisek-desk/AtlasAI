@@ -5,6 +5,7 @@ import { vectorStore } from "../config/vectorDb.js";
 import { getModel } from "../config/llmModels.js";
 import { HumanMessage, SystemMessage } from "@langchain/core/messages";
 import deductCredits from "../utils/deductCredits.js";
+import { checkAgentLimit } from "../config/agentlimit.js";
 
 // Short PDFs fit in the prompt, so they skip the vector database entirely
 // (faster, cheaper, and no Qdrant or embeddings needed).
@@ -28,6 +29,7 @@ export const pdfRag = async (state) => {
   let collectionName = "";
 
   try {
+    await checkAgentLimit(state.userId, "pdfRag");
     if (!filePath) {
       throw new Error("No PDF was uploaded");
     }
@@ -88,31 +90,33 @@ export const pdfRag = async (state) => {
       ),
     ];
 
-    const response =await llm.invoke(messages);
-    await deductCredits(state.userId,"pdf")
-    return{
+    const response = await llm.invoke(messages);
+    await deductCredits(state.userId, "pdf");
+    return {
       ...state,
-      aiResponse:toText(response.content)
-    }
-
+      aiResponse: toText(response.content),
+    };
   } catch (error) {
-    console.log(error)
-    return{
+    console.log(error);
+    return {
       ...state,
-      aiResponse:"Failed to analyze pdf"
-    }
-  }finally{
+      aiResponse: "Failed to analyze pdf",
+    };
+  } finally {
     // Temporary upload; also guard against a missing file.
     if (filePath) {
-      fs.promises.unlink(filePath).catch(() => {})
+      fs.promises.unlink(filePath).catch(() => {});
     }
 
     // The collection belongs to this single question, so don't let them pile up.
     if (store && collectionName) {
       try {
-        await store.client.deleteCollection(collectionName)
+        await store.client.deleteCollection(collectionName);
       } catch (cleanupError) {
-        console.error("Could not delete the PDF collection:", cleanupError.message)
+        console.error(
+          "Could not delete the PDF collection:",
+          cleanupError.message,
+        );
       }
     }
   }

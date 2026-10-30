@@ -7,6 +7,7 @@ import {
 import { getModel } from "../config/llmModels.js";
 import { getMemory } from "../config/memory.js";
 import deductCredits from "../utils/deductCredits.js";
+import { checkAgentLimit } from "../config/agentlimit.js";
 
 // Only send the text results to the LLM (not image URLs or metadata).
 const formatSearchContext = (searchResults) => {
@@ -25,6 +26,7 @@ const formatSearchContext = (searchResults) => {
 };
 
 export const chatAgent = async (state) => {
+  await checkAgentLimit(state.userId, "chat");
   const llm = await getModel("chat");
 
   const history = await getMemory(state.conversationId);
@@ -65,7 +67,7 @@ export const chatAgent = async (state) => {
   }
 
   const response = await llm.invoke(messages);
-  await deductCredits(state.userId,"chat")
+  await deductCredits(state.userId, "chat");
 
   return { aiResponse: response.content };
 };

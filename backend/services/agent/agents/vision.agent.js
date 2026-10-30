@@ -3,6 +3,7 @@ import axios from "axios";
 import { uploadToS3 } from "../utils/uploadToS3.js";
 import { getFromS3 } from "../utils/getFromS3.js";
 import deductCredits from "../utils/deductCredits.js";
+import { checkAgentLimit } from "../config/agentlimit.js";
 
 const toText = (content) => {
   if (typeof content === "string") return content;
@@ -18,6 +19,7 @@ const toText = (content) => {
 
 export const visionAgent = async (state) => {
   try {
+    await checkAgentLimit(state.userId, "vision");
     const llm = await getModel("vision");
 
     const res = await llm.invoke(`

@@ -1,3 +1,4 @@
+import { checkAgentLimit } from "../config/agentlimit.js";
 import { getModel } from "../config/llmModels.js";
 import { getMemory } from "../config/memory.js";
 import deductCredits from "../utils/deductCredits.js";
@@ -163,6 +164,7 @@ export const codingAgent = async (state) => {
   console.log("Coding agent started");
 
   try {
+    await checkAgentLimit(state.userId, "coding");
     const intentLLM = await getModel("intent");
     const llm = await getModel("coding");
 
@@ -263,13 +265,13 @@ RULES:
 - Never present an unverified assumption as a confirmed diagnosis.
 - Ensure that the response follows the requested technology stack and schema.
 ${wantsImages ? IMAGE_RULES : ""}${
-  historyText
-    ? `
+        historyText
+          ? `
 PREVIOUS CONVERSATION (earlier generated files are included, build on them when the user asks for changes):
 ${historyText}
 `
-    : ""
-}
+          : ""
+      }
 USER REQUEST:
 ${state.prompt}
 `;
@@ -308,8 +310,7 @@ ${state.prompt}
           "\n\n> **Note:** the response hit the model's length limit, so the last file may be incomplete. Ask me to finish it or to split the project into smaller parts.";
       }
 
-      await deductCredits(state.userId,"coding")
-      
+      await deductCredits(state.userId, "coding");
 
       return {
         ...state,
@@ -356,7 +357,7 @@ ${state.prompt}
     );
 
     const data = stripMarkdownFence(toText(res.content));
-    await deductCredits(state.userId,"coding")
+    await deductCredits(state.userId, "coding");
 
     return {
       ...state,

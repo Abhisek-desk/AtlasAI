@@ -1,3 +1,4 @@
+import { checkAgentLimit } from "../config/agentlimit.js"
 import { getModel } from "../config/llmModels.js"
 import deductCredits from "../utils/deductCredits.js"
 import { generatePdf } from "../utils/generatePdf.js"
@@ -53,6 +54,7 @@ const normalizeDocument = (data) => ({
 
 export const pdfAgent=async (state)=>{
     try {
+        await checkAgentLimit(state.userId,"pdf")
         const llm=await getModel("pdf")
         const prompt=`
         You are an expert document writer.
