@@ -120,9 +120,24 @@ export const pptAgent=async (state)=>{
     }
     } catch (error) {
         console.error("PPT agent error:", error)
+
+        const storageProblem =
+            error?.Code === "InvalidAccessKeyId" ||
+            error?.name === "InvalidAccessKeyId" ||
+            error?.Code === "SignatureDoesNotMatch"
+
+        const localStorageProblem =
+            /FILE_SIGNING_SECRET|PUBLIC_API_URL|Unsafe or unsupported file name/i.test(
+                String(error?.message || ""),
+            )
+
         return{
         ...state,
-        aiResponse:`❌ Failed to generate PPT.`
+        aiResponse: storageProblem
+            ? `❌ Failed to generate PPT. The file storage credentials are invalid.`
+            : localStorageProblem
+              ? `❌ Failed to generate PPT. Local file storage is not configured (${error.message}).`
+              : `❌ Failed to generate PPT.`
     }
     }
 }

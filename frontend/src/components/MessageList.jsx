@@ -137,6 +137,120 @@ export const CodeBlock = ({ code, language = "text", label, bare = false }) => {
 
 const HTTP_URL = /^https?:\/\//i;
 const CARD_WIDTH = 288;
+const GENERATED_FILE_PATH = /\/(?:api|agent)\/files\//i;
+
+const getFileNameFromHref = (href) => {
+  try {
+    const name = decodeURIComponent(
+      new URL(href, window.location.origin).pathname.split("/").pop() || "",
+    );
+
+    return name || "download";
+  } catch {
+    return "download";
+  }
+};
+
+const isGeneratedFileHref = (href) => {
+  if (typeof href !== "string" || !href) return false;
+
+  try {
+    return GENERATED_FILE_PATH.test(
+      new URL(href, window.location.origin).pathname,
+    );
+  } catch {
+    return GENERATED_FILE_PATH.test(href);
+  }
+};
+
+const getGeneratedFileKind = (href) => {
+  const name = getFileNameFromHref(href).toLowerCase();
+
+  if (name.endsWith(".pdf")) return "pdf";
+  if (name.endsWith(".pptx") || name.endsWith(".ppt")) return "ppt";
+  if (/\.(png|jpe?g|webp|gif)$/.test(name)) return "image";
+
+  return "file";
+};
+
+const fileDownloadCandidates = (href) => {
+  const urls = [];
+  const add = (value) => {
+    if (value && !urls.includes(value)) urls.push(value);
+  };
+
+  add(href);
+
+  try {
+    const url = new URL(href, window.location.origin);
+    const pathAndQuery = `${url.pathname}${url.search}`;
+    const apiBase = String(import.meta.env.VITE_SERVER_URL || "").replace(
+      /\/+$/,
+      "",
+    );
+
+    if (url.hostname === "localhost") {
+      url.hostname = "127.0.0.1";
+      add(url.toString());
+    }
+
+    if (apiBase) add(`${apiBase}${pathAndQuery}`);
+  } catch {
+    // Keep the original href only.
+  }
+
+  return urls;
+};
+
+const readErrorMessage = async (response) => {
+  try {
+    const body = await response.json();
+    if (body?.message) return body.message;
+  } catch {
+    // Response was not JSON.
+  }
+
+  return `HTTP ${response.status}`;
+};
+
+const downloadHrefAsFile = async (href) => {
+  let lastError = new Error("Download failed");
+
+  for (const url of fileDownloadCandidates(href)) {
+    try {
+      // Signed file links do not need cookies; skip Vite's /api proxy.
+      const response = await fetch(url, { credentials: "omit", mode: "cors" });
+
+      if (!response.ok) {
+        lastError = new Error(await readErrorMessage(response));
+        continue;
+      }
+
+      const blob = await response.blob();
+      const type = blob.type || "";
+
+      if (type.includes("json") || type.includes("text/html")) {
+        lastError = new Error("The file could not be downloaded");
+        continue;
+      }
+
+      const objectUrl = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+
+      link.href = objectUrl;
+      link.download = getFileNameFromHref(href);
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+      return;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error(String(error));
+    }
+  }
+
+  throw lastError;
+};
 
 const getHost = (href) => {
   try {
@@ -149,6 +263,61 @@ const getHost = (href) => {
 const LINK_CLASS =
   "break-words rounded-sm text-indigo-400 underline decoration-indigo-400/40 underline-offset-2 transition hover:bg-indigo-400/10 hover:text-indigo-300 hover:decoration-indigo-300 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400";
 
+const GeneratedFileLink = ({ href, children }) => {
+  const [downloading, setDownloading] = useState(false);
+  const [error, setError] = useState("");
+  const kind = getGeneratedFileKind(href);
+  const filename = getFileNameFromHref(href);
+  const label =
+    kind === "pdf" ? "PDF" : kind === "ppt" ? "PowerPoint" : "File";
+
+  const downloadFile = async () => {
+    setDownloading(true);
+    setError("");
+
+    try {
+      await downloadHrefAsFile(href);
+    } catch (err) {
+      console.error("Download file error:", err);
+      setError(err?.message || "Download failed. Generate the file again.");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
+  return (
+    <span className="my-3 block w-full max-w-xl overflow-hidden rounded-2xl border border-white/10 bg-[#111318]">
+      <span className="flex items-center justify-between gap-3 px-4 py-3">
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-medium text-gray-100">
+            {typeof children === "string" && children.startsWith("http")
+              ? `Download ${label}`
+              : children || `Download ${label}`}
+          </span>
+          <span className="mt-0.5 block truncate text-xs text-slate-500">
+            {filename}
+          </span>
+        </span>
+
+        <button
+          type="button"
+          onClick={downloadFile}
+          disabled={downloading}
+          className="flex shrink-0 items-center gap-1.5 rounded-lg bg-indigo-500 px-3 py-1.5 text-xs font-medium text-white transition hover:bg-indigo-400 disabled:opacity-50"
+        >
+          <Download size={14} />
+          {downloading ? "Saving..." : `Download ${label}`}
+        </button>
+      </span>
+      {error ? (
+        <span className="block border-t border-red-500/20 px-4 py-2 text-xs text-red-300">
+          {error}
+        </span>
+      ) : null}
+    </span>
+  );
+};
+
 const MarkdownLink = ({ href, children }) => {
   const anchorRef = useRef(null);
   const closeTimerRef = useRef(null);
@@ -157,6 +326,7 @@ const MarkdownLink = ({ href, children }) => {
   const [card, setCard] = useState(null); // { top, left, above } | null
   const [copied, setCopied] = useState(false);
 
+  const isGeneratedFile = isGeneratedFileHref(href);
   const isWebLink = typeof href === "string" && HTTP_URL.test(href);
 
   const cancelClose = () => clearTimeout(closeTimerRef.current);
@@ -226,6 +396,10 @@ const MarkdownLink = ({ href, children }) => {
       console.error("Copy link error:", err);
     }
   };
+
+  if (isGeneratedFile) {
+    return <GeneratedFileLink href={href}>{children}</GeneratedFileLink>;
+  }
 
   // mailto:, #anchors, relative links: plain styled link, no card.
   if (!isWebLink) {
@@ -332,21 +506,7 @@ const GeneratedImage = ({ src, alt }) => {
     setDownloading(true);
 
     try {
-      const response = await fetch(src);
-
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-
-      const url = URL.createObjectURL(await response.blob());
-
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = getImageName(src);
-
-      document.body.appendChild(link);
-      link.click();
-      link.remove();
-
-      setTimeout(() => URL.revokeObjectURL(url), 0);
+      await downloadHrefAsFile(src);
     } catch (err) {
       // Usually the bucket's CORS rules: open the image so it can be saved.
       console.error("Download image error:", err);

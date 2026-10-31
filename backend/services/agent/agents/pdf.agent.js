@@ -117,11 +117,18 @@ export const pdfAgent=async (state)=>{
             error?.name === "InvalidAccessKeyId" ||
             error?.Code === "SignatureDoesNotMatch"
 
+        const localStorageProblem =
+            /FILE_SIGNING_SECRET|PUBLIC_API_URL|Unsafe or unsupported file name/i.test(
+                String(error?.message || ""),
+            )
+
         return {
             ...state,
             aiResponse: storageProblem
                 ? `❌ Failed to generate pdf. The file storage credentials are invalid.`
-                : `❌ Failed to generate pdf`
+                : localStorageProblem
+                  ? `❌ Failed to generate pdf. Local file storage is not configured (${error.message}).`
+                  : `❌ Failed to generate pdf`
         }
     }
 }

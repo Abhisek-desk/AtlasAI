@@ -60,7 +60,20 @@ app.use(
 app.use(
   "/api/files",
   proxy(process.env.AGENT_SERVICE, {
-    proxyReqPathResolver: (req) => `/agent/files${req.url}`,
+    // Do not buffer the file as JSON; PDF/PPT bytes must pass through as-is.
+    parseReqBody: false,
+    proxyReqPathResolver: (req) => {
+      const original = req.originalUrl || req.url || "";
+      const qIndex = original.indexOf("?");
+      const pathname = qIndex === -1 ? original : original.slice(0, qIndex);
+      const search = qIndex === -1 ? "" : original.slice(qIndex);
+      const name = pathname.split("/").filter(Boolean).pop() || "";
+      return `/agent/files/${name}${search}`;
+    },
+    userResHeaderDecorator: (headers) => {
+      headers["access-control-expose-headers"] = "content-disposition, content-type";
+      return headers;
+    },
   })
 );
 
@@ -70,6 +83,6 @@ app.get("/", (req, res) => {
   res.json({ message: "Gateway is running" });
 });
 
-app.listen(port, () => {
+app.listen(port, "0.0.0.0", () => {
   console.log(`Gateway started at ${port}`);
 });
