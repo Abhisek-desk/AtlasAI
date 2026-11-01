@@ -24,11 +24,21 @@ const isInternalRequest = (req) => {
   const secret = process.env.INTERNAL_API_SECRET;
   const received = String(req.headers["x-internal-secret"] || "");
 
-  return Boolean(
-    secret &&
-      received.length === secret.length &&
-      crypto.timingSafeEqual(Buffer.from(received), Buffer.from(secret)),
-  );
+  if (!secret) {
+    console.error("INTERNAL_API_SECRET is missing for internal auth request");
+    return false;
+  }
+
+  if (received.length !== secret.length) {
+    return false;
+  }
+
+  try {
+    return crypto.timingSafeEqual(Buffer.from(received), Buffer.from(secret));
+  } catch (error) {
+    console.error("Unable to validate internal auth secret:", error);
+    return false;
+  }
 };
 
 // Writes the user's current plan/credits into their session so /api/me (and
