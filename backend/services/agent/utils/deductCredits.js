@@ -1,14 +1,28 @@
 import axios from "axios";
 
-
-const deductCredits =async (userId,agent) => {
+const deductCredits = async (userId, agent) => {
   try {
-    const {data}=await axios.post(`${process.env.AUTH_SERVICE}/chat/deduct-credits/${userId}`,{userId,agent});
-    return data
+    const { data } = await axios.post(
+      `${process.env.AUTH_SERVICE}/auth/deduct-credit`,
+      { userId, agent },
+      { headers: { "x-internal-secret": process.env.INTERNAL_API_SECRET } },
+    );
+    return data;
   } catch (error) {
-    console.log(error)
-    return null
-  }
-}
+    const status = error.response?.status;
+    const data = error.response?.data || {
+      message: "Could not deduct credits for this request.",
+    };
 
-export default deductCredits
+    console.error("Credit deduction failed:", data);
+    // Preserve the HTTP status so the gateway can return 402/403 instead of
+    // silently allowing a successful but uncharged request.
+    if (status) {
+      error.status = status;
+      error.data = data;
+    }
+    throw error;
+  }
+};
+
+export default deductCredits;

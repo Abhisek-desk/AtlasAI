@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useDispatch, useSelector } from "react-redux";
-import { motion } from "motion/react";
+import { motion } from "framer-motion"; // Changed from motion/react to framer-motion
 import { AlertCircle, Check, Coins, Sparkles, X } from "lucide-react";
 
 import api from "../../utils/axios.js";
@@ -51,7 +51,6 @@ const formatDate = (value) =>
 const BillingDrawer = ({ open, onClose }) => {
   const dispatch = useDispatch();
   const userData = useSelector((state) => state.user?.userData);
-
   const [loadingPlan, setLoadingPlan] = useState(null);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -141,11 +140,14 @@ const BillingDrawer = ({ open, onClose }) => {
 
         handler: async (response) => {
           try {
-            await api.post("/api/billing/verify", {
+            const verificationData = {
               razorpay_order_id: response.razorpay_order_id,
               razorpay_payment_id: response.razorpay_payment_id,
               razorpay_signature: response.razorpay_signature,
-            });
+              userId: userData._id // Add userId to verification
+            };
+
+            await api.post("/api/billing/verify", verificationData);
 
             // The session now holds the new plan and credits.
             const user = await getCurrentUser();
@@ -154,6 +156,7 @@ const BillingDrawer = ({ open, onClose }) => {
 
             setSuccess(`${plan.credits} credits were added to your account.`);
           } catch (err) {
+            console.error("Payment verification error:", err);
             setError(
               err.response?.data?.message ||
                 `We received your payment but could not confirm it. Please contact support with payment id ${response.razorpay_payment_id}.`,
@@ -175,8 +178,11 @@ const BillingDrawer = ({ open, onClose }) => {
 
       checkout.open();
     } catch (err) {
+      console.error("Payment creation error:", err);
       setError(
-        err.response?.data?.message || err.message || "Something went wrong.",
+        err.response?.data?.message ||
+          err.message ||
+          "Something went wrong. Please try again."
       );
       setLoadingPlan(null);
     }
@@ -230,147 +236,105 @@ const BillingDrawer = ({ open, onClose }) => {
           <div className="rounded-2xl border border-[#263247] bg-[#111A2E] p-4">
             <div className="flex items-center justify-between">
               <p className="text-xs font-medium uppercase tracking-[0.12em] text-[#64748B]">
-                Current plan
+                Current Balance
               </p>
-              <span className="rounded-md border border-violet-400/20 bg-violet-400/10 px-2 py-0.5 text-[11px] font-medium text-violet-300">
-                {currentPlan.name}
+              <span className="text-xs text-[#94A3B8]">
+                {currentPlan.name} Plan
               </span>
             </div>
-
-            <p className="mt-3 text-3xl font-semibold tracking-tight">
-              {credits}
-              <span className="ml-1.5 text-sm font-normal text-[#64748B]">
-                credits left
-              </span>
-            </p>
-
-            <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-[#263247]">
-              <div
-                className="h-full rounded-full bg-gradient-to-r from-[#7C3AED] to-[#6366F1] transition-all duration-500"
+            <div className="mt-2 flex items-baseline gap-2">
+              <span className="text-2xl font-bold">{credits}</span>
+              <span className="text-sm text-[#94A3B8]">/ {totalCredits} credits</span>
+            </div>
+            
+            {/* Progress bar */}
+            <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-[#1E293B]">
+              <div 
+                className="h-full bg-violet-500 transition-all duration-300" 
                 style={{ width: `${percent}%` }}
               />
             </div>
 
-            <p className="mt-2 text-xs text-[#64748B]">
-              {expiresAt
-                ? isExpired
-                  ? `Plan expired on ${formatDate(expiresAt)}`
-                  : `Valid until ${formatDate(expiresAt)}`
-                : "No expiry date"}
-            </p>
+            {expiresAt && (
+              <p className="mt-3 text-xs text-[#94A3B8]">
+                {isExpired ? "Plan expired on " : "Renews/Expires on "} 
+                <span className="font-medium text-white">{formatDate(expiresAt)}</span>
+              </p>
+            )}
           </div>
 
-          {/* Messages */}
-          {success && (
-            <div className="flex items-start gap-2 rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-3 text-sm text-emerald-300">
-              <Check size={17} className="mt-0.5 shrink-0" />
-              <p>{success}</p>
-            </div>
-          )}
-
+          {/* Error / Success feedback */}
           {error && (
-            <div className="flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/5 p-3 text-sm text-red-300">
-              <AlertCircle size={17} className="mt-0.5 shrink-0" />
-              <p>{error}</p>
+            <div className="flex items-start gap-2.5 rounded-xl border border-red-500/30 bg-red-500/10 p-3.5 text-sm text-red-400">
+              <AlertCircle size={18} className="mt-0.5 shrink-0" />
+              <span>{error}</span>
             </div>
           )}
 
-          {!userData && (
-            <p className="text-sm text-[#94A3B8]">
-              Please log in to buy credits.
-            </p>
+          {success && (
+            <div className="flex items-start gap-2.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 text-sm text-emerald-400">
+              <Check size={18} className="mt-0.5 shrink-0" />
+              <span>{success}</span>
+            </div>
           )}
 
-          {/* Plans */}
+          {/* Plans list */}
           <div className="space-y-3">
-            <p className="text-xs font-medium uppercase tracking-[0.12em] text-[#64748B]">
-              Choose a plan
-            </p>
-
+            <h3 className="text-xs font-medium uppercase tracking-[0.12em] text-[#64748B]">
+              Available Plans
+            </h3>
             {PLANS.map((plan) => {
-              const isCurrent = plan.id === planId;
-              const isFree = plan.amount === 0;
+              const isCurrent = plan.id === currentPlan.id;
               const isLoading = loadingPlan === plan.id;
 
               return (
                 <div
                   key={plan.id}
-                  className={`rounded-2xl border p-4 transition-colors ${
+                  className={`relative rounded-2xl border p-4 transition-all ${
                     plan.popular
-                      ? "border-violet-400/40 bg-violet-500/5"
+                      ? "border-violet-500/50 bg-violet-500/5"
                       : "border-[#263247] bg-[#111A2E]"
                   }`}
                 >
-                  <div className="flex items-start justify-between gap-3">
+                  {plan.popular && (
+                    <span className="absolute -top-2.5 right-4 rounded-full bg-violet-600 px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-white">
+                      Popular
+                    </span>
+                  )}
+                  <div className="flex items-center justify-between">
                     <div>
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-sm font-semibold">{plan.name}</h3>
-
-                        {plan.popular && (
-                          <span className="flex items-center gap-1 rounded-md bg-violet-500/20 px-1.5 py-0.5 text-[10px] font-medium text-violet-200">
-                            <Sparkles size={10} />
-                            Popular
-                          </span>
-                        )}
-
-                        {isCurrent && (
-                          <span className="rounded-md bg-white/10 px-1.5 py-0.5 text-[10px] font-medium text-[#CBD5E1]">
-                            Current
-                          </span>
-                        )}
-                      </div>
-
-                      <p className="mt-1 text-xs text-[#64748B]">
-                        {plan.validity}-day validity
-                      </p>
+                      <h4 className="font-semibold text-white">{plan.name}</h4>
+                      <p className="text-xs text-[#94A3B8]">{plan.credits} credits / month</p>
                     </div>
-
-                    <p className="text-lg font-semibold">
-                      {isFree ? "Free" : `₹${plan.amount}`}
-                    </p>
+                    <div className="text-right">
+                      <span className="text-lg font-bold">₹{plan.amount}</span>
+                    </div>
                   </div>
 
-                  <p className="mt-3 flex items-center gap-2 text-sm text-[#CBD5E1]">
-                    <Check size={15} className="shrink-0 text-[#A78BFA]" />
-                    {plan.credits} credits
-                  </p>
-
-                  {!isFree && (
-                    <button
-                      type="button"
-                      onClick={() => handlePurchase(plan)}
-                      disabled={Boolean(loadingPlan) || !userData}
-                      className={`mt-4 flex h-10 w-full items-center justify-center gap-2 rounded-xl text-sm font-semibold transition-all disabled:cursor-not-allowed disabled:opacity-50 ${
-                        plan.popular
-                          ? "bg-gradient-to-r from-[#7C3AED] to-[#6366F1] text-white hover:brightness-110"
-                          : "border border-[#263247] bg-[#1E293B] text-[#F1F5F9] hover:bg-[#263247]"
-                      }`}
-                    >
-                      {isLoading ? (
-                        <>
-                          <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white" />
-                          Processing...
-                        </>
-                      ) : isCurrent ? (
-                        `Add ${plan.credits} more credits`
-                      ) : (
-                        `Get ${plan.name}`
-                      )}
-                    </button>
-                  )}
+                  <button
+                    type="button"
+                    disabled={isCurrent || loadingPlan !== null}
+                    onClick={() => handlePurchase(plan)}
+                    className={`mt-4 w-full rounded-xl py-2.5 text-sm font-medium transition-colors ${
+                      isCurrent
+                        ? "bg-[#1E293B] text-[#64748B] cursor-not-allowed"
+                        : "bg-violet-600 text-white hover:bg-violet-500"
+                    }`}
+                  >
+                    {isLoading
+                      ? "Processing..."
+                      : isCurrent
+                      ? "Current Plan"
+                      : `Upgrade to ${plan.name}`}
+                  </button>
                 </div>
               );
             })}
           </div>
-
-          <p className="text-xs leading-5 text-[#64748B]">
-            Credits are added to your balance right after the payment is
-            confirmed. Payments are processed securely by Razorpay.
-          </p>
         </div>
       </motion.aside>
     </div>,
-    document.body,
+    document.body
   );
 };
 
