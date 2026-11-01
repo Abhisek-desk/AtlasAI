@@ -365,6 +365,7 @@ ${state.prompt}
       artifacts: [],
     };
   } catch (error) {
+    if (error?.status && error?.data) throw error; 
     console.error("Coding agent error:", error.message);
     throw error;
   }

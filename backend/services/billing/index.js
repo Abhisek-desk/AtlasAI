@@ -3,7 +3,7 @@ import dotenv from "dotenv";
 import connectDB from "./config/db.js";
 import router from "./routes/billing.route.js";
 
-dotenv.config();
+dotenv.config({ override: true });
 
 const port = process.env.PORT;
 const app = express();
@@ -19,5 +19,8 @@ app.use("/billing", router);
 
 app.listen(port, () => {
   console.log(`Billing Server started at ${port}`);
+  console.log(
+    `INTERNAL_API_SECRET ${process.env.INTERNAL_API_SECRET ? "is set" : "is MISSING"}`,
+  );
   connectDB();
 });

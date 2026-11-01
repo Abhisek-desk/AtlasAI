@@ -5,6 +5,7 @@ import {
   ArrowUp,
   Paperclip,
   Mic,
+  Square,
   Sparkles,
   MessageSquare,
   Code,
@@ -90,6 +91,7 @@ const ChatInput = ({
   const [selectedFile, setSelectedFile] = useState(null);
   const fileRef = useRef(null);
   const textareaRef = useRef(null);
+  const abortRef = useRef(null);
 
   const [message, setMessage] = useState(initialValue);
   const [selectedAgent, setSelectedAgent] = useState("auto");
@@ -151,11 +153,30 @@ const ChatInput = ({
     replacePreview(file);
   };
 
+  const handleStop = () => {
+    abortRef.current?.abort();
+  };
+
+  // Esc stops the response too.
+  useEffect(() => {
+    if (!sending) return;
+
+    const onKeyDown = (event) => {
+      if (event.key === "Escape") abortRef.current?.abort();
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [sending]);
+
   const handleSendMessage = async ({ prompt, conversationId }) => {
     const file = selectedFile;
     const text = prompt?.trim() || (file ? defaultPromptFor(file) : "");
 
     if (!text || sending) return;
+
+    const controller = new AbortController();
+    abortRef.current = controller;
 
     let activeConversationId = conversationId;
     let createdNow = false;
@@ -179,6 +200,14 @@ const ChatInput = ({
         dispatch(addConversation(conversation));
       }
 
+      // Stopped while the conversation was still being created.
+      if (controller.signal.aborted) {
+        if (createdNow) {
+          navigate(`/chat/${activeConversationId}`, { replace: true });
+        }
+        return;
+      }
+
       // multipart/form-data: works with and without an attached file.
       const formData = new FormData();
       formData.append("prompt", text);
@@ -199,7 +228,9 @@ const ChatInput = ({
       // Like the text box, the attachment is cleared as soon as it is sent.
       clearFile();
 
-      const { data } = await api.post("/api/agent/chat", formData);
+      const { data } = await api.post("/api/agent/chat", formData, {
+        signal: controller.signal,
+      });
 
       const response =
         typeof data === "string"
@@ -212,6 +243,7 @@ const ChatInput = ({
 
       const images = Array.isArray(data?.images) ? data.images : [];
       const artifacts = Array.isArray(data?.artifacts) ? data.artifacts : [];
+      const files = Array.isArray(data?.files) ? data.files : [];
 
       // Keep the current project open when a reply has no artifacts
       // (a normal chat answer should not close the panel).
@@ -226,6 +258,7 @@ const ChatInput = ({
             content: response,
             images,
             artifacts,
+            files,
           }),
         );
       }
@@ -259,6 +292,28 @@ const ChatInput = ({
         navigate(`/chat/${activeConversationId}`, { replace: true });
       }
     } catch (error) {
+      const wasStopped =
+        controller.signal.aborted ||
+        error.code === "ERR_CANCELED" ||
+        error.name === "CanceledError";
+
+      if (wasStopped) {
+        dispatch(
+          addMessage({ role: "assistant", content: "*Response stopped.*" }),
+        );
+
+        // The server may already have spent credits for the step in progress.
+        getCurrentUser().then((user) => {
+          if (user) dispatch(setUserData(user));
+        });
+
+        if (createdNow) {
+          navigate(`/chat/${activeConversationId}`, { replace: true });
+        }
+
+        return;
+      }
+
       console.error(
         "Send message error:",
         error.response?.data || error.message,
@@ -277,6 +332,7 @@ const ChatInput = ({
         ),
       );
     } finally {
+      if (abortRef.current === controller) abortRef.current = null;
       setSending(false);
     }
   };
@@ -426,15 +482,27 @@ const ChatInput = ({
             </span>
           </div>
 
-          <button
-            type="submit"
-            disabled={(!message.trim() && !selectedFile) || disabled || sending}
-            title="Send message"
-            aria-label="Send message"
-            className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-black transition hover:bg-gray-200 disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-400 sm:h-9 sm:w-9"
-          >
-            <ArrowUp size={19} />
-          </button>
+          {sending ? (
+            <button
+              type="button"
+              onClick={handleStop}
+              title="Stop response (Esc)"
+              aria-label="Stop response"
+              className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-black transition hover:bg-gray-200 sm:h-9 sm:w-9"
+            >
+              <Square size={15} fill="currentColor" />
+            </button>
+          ) : (
+            <button
+              type="submit"
+              disabled={(!message.trim() && !selectedFile) || disabled}
+              title="Send message"
+              aria-label="Send message"
+              className="flex h-10 w-10 items-center justify-center rounded-xl bg-white text-black transition hover:bg-gray-200 disabled:cursor-not-allowed disabled:bg-gray-700 disabled:text-gray-400 sm:h-9 sm:w-9"
+            >
+              <ArrowUp size={19} />
+            </button>
+          )}
         </div>
       </form>
 

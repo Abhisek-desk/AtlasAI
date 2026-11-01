@@ -20,12 +20,18 @@ const withArtifactFiles = (text, artifacts) => {
   return `${text}\n\n${fileText}`;
 };
 
-export const agent = async (req, res, err) => {
-  const file=req.file
+export const agent = async (req, res, next) => {
+  const file = req.file;
+
+  // Aborted when the browser cancels the request (the Stop button).
+  const abortController = new AbortController();
+  res.on("close", () => {
+    if (!res.writableFinished) abortController.abort();
+  });
 
   try {
     const { conversationId, agent: selectedAgent } = req.body;
-    const userId=req.headers["x-user-id"]
+    const userId = req.headers["x-user-id"];
 
     // A file with no question gets a sensible default instead of an error.
     const prompt =
@@ -49,13 +55,19 @@ export const agent = async (req, res, err) => {
       content: file ? `${prompt}\n\n📎 ${file.originalname}` : prompt,
     });
 
-    const result = await graph.invoke({
-      prompt,
-      conversationId,
-      agent: selectedAgent,
-      userId,
-      file
-    });
+    const result = await graph.invoke(
+      {
+        prompt,
+        conversationId,
+        agent: selectedAgent,
+        userId,
+        file,
+      },
+      { signal: abortController.signal },
+    );
+
+    // Stopped by the user: don't save or return a reply nobody is waiting for.
+    if (abortController.signal.aborted) return;
 
     const aiResponse = result.aiResponse;
 
@@ -65,7 +77,9 @@ export const agent = async (req, res, err) => {
 
     const images = Array.isArray(result.images) ? result.images : [];
     const artifacts = Array.isArray(result.artifacts) ? result.artifacts : [];
+    const files = Array.isArray(result.files) ? result.files : [];
 
+    // Must be declared before it is used below.
     const responseText =
       typeof aiResponse === "string" ? aiResponse : JSON.stringify(aiResponse);
 
@@ -82,17 +96,19 @@ export const agent = async (req, res, err) => {
       content: responseText,
       images,
       artifacts,
+      files,
     });
 
-    return res.status(200).json({ aiResponse, images, artifacts });
+    return res.status(200).json({ aiResponse, images, artifacts, files });
   } catch (error) {
-    console.error("Agent error:", error.response?.data || error.message);
-    next(error)
+    // A stop is not an error.
+    if (abortController.signal.aborted) return;
 
-    return res.status(500).json({
-      message: "Agent error",
-      error: error.response?.data || error.message,
-    });
+    console.error("Agent error:", error.response?.data || error.message);
+
+    // index.js turns err.status / err.data (402, 403, 429) into the HTTP
+    // response and returns 500 for everything else.
+    return next(error);
   } finally {
     // Uploads are temporary; the agents delete them too, so ignore "not found".
     if (file?.path) {

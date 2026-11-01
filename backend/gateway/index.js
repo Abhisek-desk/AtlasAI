@@ -7,7 +7,7 @@ import { getCurrentUser } from "./controllers/user.controller.js";
 import protect, { requireCredits } from "./middleware/auth.middleware.js";
 import { proxyWithHeader } from "./utils/proxyWithHeader.js";
 import morgan from "morgan";
-dotenv.config();
+dotenv.config({ override: true });
 
 const port = process.env.PORT;
 
@@ -41,12 +41,14 @@ app.use(
 );
 
 app.use(
-  "/api/agent",protect,requireCredits,
+  "/api/agent",
+  protect,
+  requireCredits,
   proxyWithHeader(process.env.AGENT_SERVICE, {
     // express-http-proxy rejects bodies over 1mb by default; uploads can be 20mb.
     limit: "25mb",
     proxyReqPathResolver: (req) => `/agent${req.url}`,
-  })
+  }),
 );
 
 app.use(
@@ -71,10 +73,11 @@ app.use(
       return `/agent/files/${name}${search}`;
     },
     userResHeaderDecorator: (headers) => {
-      headers["access-control-expose-headers"] = "content-disposition, content-type";
+      headers["access-control-expose-headers"] =
+        "content-disposition, content-type";
       return headers;
     },
-  })
+  }),
 );
 
 app.get("/api/me", protect, getCurrentUser);
@@ -83,6 +86,6 @@ app.get("/", (req, res) => {
   res.json({ message: "Gateway is running" });
 });
 
-app.listen(port, "0.0.0.0", () => {
+app.listen(port, () => {
   console.log(`Gateway started at ${port}`);
 });

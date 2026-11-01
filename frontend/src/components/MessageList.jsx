@@ -138,6 +138,23 @@ export const CodeBlock = ({ code, language = "text", label, bare = false }) => {
 const HTTP_URL = /^https?:\/\//i;
 const CARD_WIDTH = 288;
 const GENERATED_FILE_PATH = /\/(?:api|agent)\/files\//i;
+const CLOUD_FILE_HOST = /(^|\.)res\.cloudinary\.com$/i;
+
+const isGeneratedFileHref = (href) => {
+  if (typeof href !== "string" || !href) return false;
+
+  try {
+    const url = new URL(href, window.location.origin);
+
+    return (
+      GENERATED_FILE_PATH.test(url.pathname) ||
+      (CLOUD_FILE_HOST.test(url.hostname) &&
+        url.pathname.includes("/atlasai/"))
+    );
+  } catch {
+    return GENERATED_FILE_PATH.test(href);
+  }
+};
 
 const getFileNameFromHref = (href) => {
   try {
@@ -151,17 +168,17 @@ const getFileNameFromHref = (href) => {
   }
 };
 
-const isGeneratedFileHref = (href) => {
-  if (typeof href !== "string" || !href) return false;
+// const isGeneratedFileHref = (href) => {
+//   if (typeof href !== "string" || !href) return false;
 
-  try {
-    return GENERATED_FILE_PATH.test(
-      new URL(href, window.location.origin).pathname,
-    );
-  } catch {
-    return GENERATED_FILE_PATH.test(href);
-  }
-};
+//   try {
+//     return GENERATED_FILE_PATH.test(
+//       new URL(href, window.location.origin).pathname,
+//     );
+//   } catch {
+//     return GENERATED_FILE_PATH.test(href);
+//   }
+// };
 
 const getGeneratedFileKind = (href) => {
   const name = getFileNameFromHref(href).toLowerCase();

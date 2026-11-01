@@ -22,7 +22,7 @@ import {
   setArtifacts,
 } from "../redux/messageSlice.js";
 
-const ChatArea = (onOpenSidebar) => {
+const ChatArea = ({ onOpenSidebar }) => {
   const dispatch = useDispatch();
   const navigate = useNavigate();
   const { conversationId } = useParams();

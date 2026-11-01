@@ -20,16 +20,16 @@ export const imageAnalyzer = async (state) => {
   const filePath = state.file?.path;
 
   try {
-    await checkAgentLimit(state.userId,"imageAnalyzer")
+    await checkAgentLimit(state.userId, "imageAnalyzer");
+
     if (!filePath) {
       throw new Error("No image was uploaded");
     }
 
     const llm = await getModel("imageAnalyzer");
-    // readFile returns a Promise: without `await` the "image" was the text
-    // "[object Promise]" encoded as base64.
     const imageBuffer = await fs.readFile(filePath);
     const base64Image = imageBuffer.toString("base64");
+
     const messages = [
       new SystemMessage(`You are image Analyzer agent.
         Rules:
@@ -55,14 +55,19 @@ export const imageAnalyzer = async (state) => {
         ],
       }),
     ];
+
     const response = await llm.invoke(messages);
-    await deductCredits(state.userId,"vision")
+    await deductCredits(state.userId, "vision");
+
     return {
       ...state,
       aiResponse: toText(response.content),
     };
   } catch (error) {
-    console.log(error);
+    // Credit (402/403/404) and rate-limit (429) errors must reach the client.
+    if (error?.status) throw error;
+
+    console.error("Image analyzer error:", error.message);
     return {
       ...state,
       aiResponse: "Failed to analyze file",

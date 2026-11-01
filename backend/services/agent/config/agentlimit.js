@@ -4,8 +4,11 @@ const Limits = {
   chat: 20,
   coding: 5,
   pdf: 5,
+  pdfRag: 5,
   ppt: 5,
   image: 5,
+  vision: 5,
+  imageAnalyzer: 5,
   search: 5,
 };
 
@@ -22,23 +25,23 @@ export const checkAgentLimit = async (userId, agent) => {
     const minutes = Math.floor(ttl / 60);
     const seconds = ttl % 60;
 
-    const time = minutes > 0 ? `${minutes}m :${seconds}` : `${seconds}s`;
+    const time = minutes > 0 ? `${minutes}m ${seconds}s` : `${seconds}s`;
 
     const error = new Error(`Rate limit exceeded for ${agent}`);
 
     error.status = 429;
     error.data = {
-      succcess: false,
+      success: false,
       agent,
       limit: max,
       remainingTime: ttl,
       retryAfter: time,
-      message: `You have reached the ${agent} limit (${max} requests/minute).Try again in ${time}`,
+      message: `You have reached the ${agent} limit (${max} requests/minute). Try again in ${time}`,
     };
     throw error;
   }
-  return{
-    remaining:max-count,
-    limit:max
-  }
+  return {
+    remaining: max - count,
+    limit: max,
+  };
 };

@@ -97,6 +97,7 @@ export const pdfRag = async (state) => {
       aiResponse: toText(response.content),
     };
   } catch (error) {
+    if (error?.status && error?.data) throw error; 
     console.log(error);
     return {
       ...state,

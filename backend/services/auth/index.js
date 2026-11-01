@@ -4,7 +4,7 @@ import connectDB from "./config/db.js";
 import authRoutes from "./routes/auth.routes.js";
 import cookieParser from "cookie-parser";
 
-dotenv.config();
+dotenv.config({ override: true });
 
 const port = process.env.PORT;
 const app = express();
@@ -19,5 +19,8 @@ app.get("/", (req, res) => {
 
 app.listen(port, () => {
   console.log(`Auth Server started at ${port}`);
+  console.log(
+    `INTERNAL_API_SECRET ${process.env.INTERNAL_API_SECRET ? "is set" : "is MISSING"}`,
+  );
   connectDB();
 });

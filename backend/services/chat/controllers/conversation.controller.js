@@ -79,7 +79,8 @@ export const updateConversation = async (req, res) => {
 // Save a message
 export const saveMessage = async (req, res) => {
   try {
-    const { conversationId, role, content, images, artifacts } = req.body;
+    const { conversationId, role, content, images, artifacts, files } =
+      req.body;
 
     if (!conversationId || !role || !content) {
       return res.status(400).json({
@@ -87,14 +88,13 @@ export const saveMessage = async (req, res) => {
       });
     }
 
-    // images and artifacts were dropped here, so generated projects and search
-    // images disappeared after a refresh.
     const message = await Message.create({
       conversationId,
       role,
       content,
       images: Array.isArray(images) ? images : [],
       artifacts: Array.isArray(artifacts) ? artifacts : [],
+      files: Array.isArray(files) ? files : [],
     });
 
     // Update the conversation's updatedAt timestamp

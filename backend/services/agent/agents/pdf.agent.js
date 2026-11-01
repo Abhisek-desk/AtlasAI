@@ -2,8 +2,9 @@ import { checkAgentLimit } from "../config/agentlimit.js"
 import { getModel } from "../config/llmModels.js"
 import deductCredits from "../utils/deductCredits.js"
 import { generatePdf } from "../utils/generatePdf.js"
-import { getFromS3 } from "../utils/getFromS3.js"
-import { uploadToS3 } from "../utils/uploadToS3.js"
+// import { getFromS3 } from "../utils/getFromS3.js"
+// import { uploadToS3 } from "../utils/uploadToS3.js"
+import { storeFile, describeExpiry } from "../utils/storage.js";
 
 const toText = (content) => {
     if (typeof content === "string") return content
@@ -87,29 +88,53 @@ export const pdfAgent=async (state)=>{
 
         const pdfBuffer=await generatePdf(data)
         const filename=`pdf-${Date.now()}.pdf`
-        await uploadToS3(filename,pdfBuffer,"application/pdf")
+        // await uploadToS3(filename,pdfBuffer,"application/pdf")
 
-        // 24 hours in seconds (it was 24 * 60 = 24 minutes).
-        const downloadUrl=await getFromS3(filename,24*60*60)
+        // // 24 hours in seconds (it was 24 * 60 = 24 minutes).
+        // const downloadUrl=await getFromS3(filename,24*60*60)
+
+        // // Charge only once the file really exists.
+        // await deductCredits(state.userId,"pdf")
+
+        // // No indentation inside the string: 4+ leading spaces make Markdown
+        // // render the lines as a code block and the link would not be clickable.
+        // return {
+        //     ...state,
+        //     aiResponse:[
+        //         "# PDF Generated",
+        //         "",
+        //         `**${data.title}**`,
+        //         "",
+        //         `🔻 [Download PDF](${downloadUrl})`,
+        //         "",
+        //         "Link expires in 24 hrs",
+        //     ].join("\n")
+        // }
+                const stored = await storeFile({
+            filename,
+            buffer: pdfBuffer,
+            contentType: "application/pdf",
+            conversationId: state.conversationId,
+        })
 
         // Charge only once the file really exists.
         await deductCredits(state.userId,"pdf")
 
-        // No indentation inside the string: 4+ leading spaces make Markdown
-        // render the lines as a code block and the link would not be clickable.
         return {
             ...state,
+            files: [stored],
             aiResponse:[
                 "# PDF Generated",
                 "",
                 `**${data.title}**`,
                 "",
-                `🔻 [Download PDF](${downloadUrl})`,
+                `🔻 [Download PDF](${stored.url})`,
                 "",
-                "Link expires in 24 hrs",
+                describeExpiry(stored),
             ].join("\n")
         }
     } catch (error) {
+        if (error?.status && error?.data) throw error; 
         console.error("PDF agent error:", error)
 
         const storageProblem =

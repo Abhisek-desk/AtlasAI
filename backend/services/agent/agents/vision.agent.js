@@ -1,9 +1,10 @@
 import { getModel } from "../config/llmModels.js";
 import axios from "axios";
-import { uploadToS3 } from "../utils/uploadToS3.js";
-import { getFromS3 } from "../utils/getFromS3.js";
+// import { uploadToS3 } from "../utils/uploadToS3.js";
+// import { getFromS3 } from "../utils/getFromS3.js";
 import deductCredits from "../utils/deductCredits.js";
 import { checkAgentLimit } from "../config/agentlimit.js";
+import { storeFile, describeExpiry } from "../utils/storage.js";
 
 const toText = (content) => {
   if (typeof content === "string") return content;
@@ -68,25 +69,51 @@ export const visionAgent = async (state) => {
     const extension = contentType.split("/")[1].replace("jpeg", "jpg");
     const filename = `image-${Date.now()}.${extension}`;
 
-    await uploadToS3(filename, buffer, contentType);
+    // await uploadToS3(filename, buffer, contentType);
 
-    // 24 hours in seconds (it was 24 * 60 = 24 minutes).
-    const downloadUrl = await getFromS3(filename, 24 * 60 * 60);
+    // 24 hours in seconds.
+    // const downloadUrl = await getFromS3(filename, 24 * 60 * 60);
+
+    // Charge only once the image really exists.
+    // await deductCredits(state.userId, "vision");
+
+//     return {
+//       ...state,
+//       aiResponse: `
+// # 🖼️ Image Generated Successfully!
+
+// ![Generated Image](${downloadUrl})
+
+// ⏳ The link expires in 24 hours, so download the image to keep it.
+//       `,
+//     };
+    const stored = await storeFile({
+      filename,
+      buffer,
+      contentType,
+      conversationId: state.conversationId,
+    });
 
     // Charge only once the image really exists.
     await deductCredits(state.userId, "vision");
 
     return {
       ...state,
+      files: [stored],
       aiResponse: `
 # 🖼️ Image Generated Successfully!
 
-![Generated Image](${downloadUrl})
+![Generated Image](${stored.url})
 
-⏳ The link expires in 24 hours, so download the image to keep it.
+${describeExpiry(stored)}
       `,
     };
   } catch (error) {
+    // Credit (402/403/404) and rate-limit (429) errors must reach the client.
+    // Note: axios errors from the image service also have error.status in
+    // newer axios versions, so only rethrow ones that carry our own payload.
+    if (error?.status && error?.data) throw error;
+
     console.error("Vision Agent Error:", error.message);
 
     return {
