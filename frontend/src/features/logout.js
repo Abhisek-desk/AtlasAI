@@ -1,4 +1,4 @@
-import api from "../../utils/axios.js";
+import api, { storeSession } from "../../utils/axios.js";
 
 const logout = async () => {
   try {
@@ -11,6 +11,9 @@ const logout = async () => {
     console.log(data);
   } catch (error) {
     console.error("Logout error:", error.response?.data || error.message);
+  } finally {
+    // Always forget the saved session, even if the request failed.
+    storeSession(null);
   }
 };
 

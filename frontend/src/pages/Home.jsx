@@ -1,5 +1,5 @@
 import { signInWithPopup } from "firebase/auth";
-import api from "../../utils/axios.js";
+import api,{ storeSession } from "../../utils/axios.js";
 import { auth, googleProvider } from "../../utils/firebase.js";
 import { FcGoogle } from "react-icons/fc";
 import { useDispatch, useSelector } from "react-redux";
@@ -18,13 +18,16 @@ const Home = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const openSidebar = useCallback(() => setMobileOpen(true), []);
   const closeSidebar = useCallback(() => setMobileOpen(false), []);
-  const handleLogin = async (token) => {
+    const handleLogin = async (token) => {
     try {
       const { data } = await api.post(
         "/api/auth/login",
         { token },
         { withCredentials: true },
       );
+
+      // Keep the session so requests work even without cross-site cookies.
+      storeSession(data.sessionId);
 
       dispatch(setUserData(data.user));
 

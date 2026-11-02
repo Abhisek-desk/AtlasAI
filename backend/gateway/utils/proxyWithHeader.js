@@ -1,4 +1,5 @@
 import proxy from "express-http-proxy";
+import { getSessionId } from "../middleware/auth.middleware.js";
 
 export const proxyWithHeader = (serviceUrl, options = {}) => {
   return proxy(serviceUrl, {
@@ -10,8 +11,10 @@ export const proxyWithHeader = (serviceUrl, options = {}) => {
       }
 
       // Lets the billing service refresh this user's session after a payment.
-      if (srcReq.cookies?.session) {
-        proxyReqOpts.headers["x-session-id"] = srcReq.cookies.session;
+      const sessionId = getSessionId(srcReq);
+
+      if (sessionId) {
+        proxyReqOpts.headers["x-session-id"] = sessionId;
       }
 
       return proxyReqOpts;

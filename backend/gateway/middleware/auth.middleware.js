@@ -1,5 +1,17 @@
 import redis from "../../shared/redis/redis.js"
 
+// The session ID comes from the Authorization header (works in every browser)
+// or from the cookie.
+export const getSessionId = (req) => {
+    const header = req.headers.authorization || ""
+
+    if (header.startsWith("Bearer ")) {
+        return header.slice(7).trim()
+    }
+
+    return req.cookies?.session
+}
+
 export const requireCredits=(req,res,next)=>{
     const credits=req.user?.credits
     if(typeof credits==="number" && credits<=0){
@@ -10,7 +22,7 @@ export const requireCredits=(req,res,next)=>{
 
 const protect=async (req,res,next)=>{
     try{
-        const sessionId=req.cookies?.session
+        const sessionId=getSessionId(req)
         if(!sessionId){
             return res.status(401).json({message:"Unauthorized"})
         }

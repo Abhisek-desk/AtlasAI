@@ -27,6 +27,18 @@ const clearSessionCookieOptions = {
   path: "/",
 };
 
+// The session ID comes from the Authorization header (works in every browser)
+// or from the cookie.
+const getSessionId = (req) => {
+  const header = req.headers.authorization || "";
+
+  if (header.startsWith("Bearer ")) {
+    return header.slice(7).trim();
+  }
+
+  return req.cookies?.session;
+};
+
 // Data stored in Redis and returned by the gateway's /api/me endpoint.
 const buildSessionData = (user) => ({
   userId: user._id.toString(),
@@ -156,6 +168,7 @@ export const login = async (req, res) => {
     return res.status(200).json({
       success: true,
       message: "Login successful",
+      sessionId,
       user: {
         id: user._id,
         firebaseUID: user.firebaseUID,
@@ -181,16 +194,16 @@ export const login = async (req, res) => {
 // LOGOUT
 export const logout = async (req, res) => {
   try {
-    const sessionId = req.cookies?.session;
+    const sessionId = getSessionId(req);
 
     if (sessionId) {
-      // Delete the current session.
+      // Read the session first, then delete it.
+      const sessionData = await redis.get(`session:${sessionId}`);
+
       await redis.del(`session:${sessionId}`);
 
       // Delete the user-session mapping only if it points to this session.
       // This avoids deleting a newer session created by another login.
-      const sessionData = await redis.get(`session:${sessionId}`);
-
       if (sessionData) {
         const user = JSON.parse(sessionData);
         const mappingKey = `user-session:${user.userId}`;
