@@ -5,7 +5,29 @@ import app from "../config/firebase.js";
 import User from "../models/user.model.js";
 import redis from "../../../shared/redis/redis.js";
 
-// What the gateway keeps in Redis for a logged-in user (returned by /api/me).
+// Session duration: 7 days.
+const SESSION_TTL = 7 * 24 * 60 * 60;
+
+// Configure cookie options consistently for login and logout.
+const isProduction = process.env.NODE_ENV === "production";
+
+const sessionCookieOptions = {
+  httpOnly: true,
+  secure: isProduction,
+  sameSite: isProduction ? "none" : "lax",
+  maxAge: SESSION_TTL * 1000,
+  path: "/",
+};
+
+// Options used to clear the cookie must match its original attributes.
+const clearSessionCookieOptions = {
+  httpOnly: true,
+  secure: isProduction,
+  sameSite: isProduction ? "none" : "lax",
+  path: "/",
+};
+
+// Data stored in Redis and returned by the gateway's /api/me endpoint.
 const buildSessionData = (user) => ({
   userId: user._id.toString(),
   name: user.name,
@@ -17,60 +39,69 @@ const buildSessionData = (user) => ({
   planExpiresAt: user.planExpiresAt,
 });
 
-// Only other services (billing, agent) may call the credit endpoints. The
-// gateway exposes /api/auth to everyone, so without this anybody could give
-// themselves credits or drain someone else's.
+// Verify that a request originates from a trusted internal service.
 const isInternalRequest = (req) => {
   const secret = process.env.INTERNAL_API_SECRET;
   const received = String(req.headers["x-internal-secret"] || "");
 
   if (!secret) {
-    console.error("INTERNAL_API_SECRET is missing for internal auth request");
+    console.error(
+      "INTERNAL_API_SECRET is missing for internal auth request"
+    );
     return false;
   }
 
-  if (received.length !== secret.length) {
+  const expectedBuffer = Buffer.from(secret);
+  const receivedBuffer = Buffer.from(received);
+
+  if (receivedBuffer.length !== expectedBuffer.length) {
     return false;
   }
 
   try {
-    return crypto.timingSafeEqual(Buffer.from(received), Buffer.from(secret));
+    return crypto.timingSafeEqual(receivedBuffer, expectedBuffer);
   } catch (error) {
-    console.error("Unable to validate internal auth secret:", error);
+    console.error("Unable to validate internal auth secret:", error.message);
     return false;
   }
 };
 
-// Writes the user's current plan/credits into their session so /api/me (and
-// the sidebar) show them straight away, keeping the session's remaining life.
-// `sessionIdHint` is the browser session that paid; otherwise the user's most
-// recent session (remembered at login) is used.
+// Update an existing Redis session while preserving its remaining TTL.
 const refreshSession = async (user, sessionIdHint) => {
   const sessionId =
     sessionIdHint || (await redis.get(`user-session:${user._id}`));
 
-  if (!sessionId) return;
+  if (!sessionId) {
+    console.warn(`No session found for user ${user._id}`);
+    return;
+  }
 
   const key = `session:${sessionId}`;
   const ttl = await redis.ttl(key);
 
   if (ttl > 0) {
-    await redis.set(key, JSON.stringify(buildSessionData(user)), "EX", ttl);
+    await redis.set(
+      key,
+      JSON.stringify(buildSessionData(user)),
+      "EX",
+      ttl
+    );
   }
 };
 
+// LOGIN
 export const login = async (req, res) => {
   try {
-    const { token } = req.body;
+    const { token } = req.body || {};
 
-    if (!token) {
+    if (!token || typeof token !== "string") {
       return res.status(400).json({
         success: false,
         message: "Firebase ID token is required",
       });
     }
 
-    // 1. Verify the Firebase ID token
+    // 1. Verify Firebase ID token.
     let decoded;
 
     try {
@@ -84,7 +115,7 @@ export const login = async (req, res) => {
       });
     }
 
-    // 2. Find or create the user
+    // 2. Find or create the MongoDB user.
     let user = await User.findOne({
       firebaseUID: decoded.uid,
     });
@@ -98,36 +129,30 @@ export const login = async (req, res) => {
       });
     }
 
-    // 3. Create a Redis session
+    // 3. Create a new session.
     const sessionId = crypto.randomUUID();
-
     const sessionData = buildSessionData(user);
 
+    // Store the session before issuing the cookie.
     await redis.set(
       `session:${sessionId}`,
       JSON.stringify(sessionData),
       "EX",
-      7 * 24 * 60 * 60,
+      SESSION_TTL
     );
 
-    // Lets the credit endpoints find this user's session later on.
+    // Remember the user's most recent session for credit updates.
     await redis.set(
       `user-session:${user._id}`,
       sessionId,
       "EX",
-      7 * 24 * 60 * 60,
+      SESSION_TTL
     );
 
-    // 4. Set the session cookie
-    res.cookie("session", sessionId, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-      path: "/",
-    });
+    // 4. Set the session cookie.
+    res.cookie("session", sessionId, sessionCookieOptions);
 
-    // 5. Return user data
+    // 5. Return user data.
     return res.status(200).json({
       success: true,
       message: "Login successful",
@@ -153,22 +178,31 @@ export const login = async (req, res) => {
   }
 };
 
+// LOGOUT
 export const logout = async (req, res) => {
   try {
     const sessionId = req.cookies?.session;
 
-    // Remove the Redis session if one exists
     if (sessionId) {
+      // Delete the current session.
       await redis.del(`session:${sessionId}`);
+
+      // Delete the user-session mapping only if it points to this session.
+      // This avoids deleting a newer session created by another login.
+      const sessionData = await redis.get(`session:${sessionId}`);
+
+      if (sessionData) {
+        const user = JSON.parse(sessionData);
+        const mappingKey = `user-session:${user.userId}`;
+        const mappedSessionId = await redis.get(mappingKey);
+
+        if (mappedSessionId === sessionId) {
+          await redis.del(mappingKey);
+        }
+      }
     }
 
-    // Clear the browser cookie using matching options
-    res.clearCookie("session", {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-    });
+    res.clearCookie("session", clearSessionCookieOptions);
 
     return res.status(200).json({
       success: true,
@@ -184,22 +218,34 @@ export const logout = async (req, res) => {
   }
 };
 
+// UPDATE USER PAYMENT
 export const updateUserPayment = async (req, res) => {
   try {
     if (!isInternalRequest(req)) {
-      return res.status(403).json({ message: "Forbidden" });
+      return res.status(403).json({
+        message: "Forbidden",
+      });
     }
 
-    const { plan, credits, userId, validity, sessionId } = req.body;
+    const { plan, credits, userId, validity, sessionId } = req.body || {};
 
-    if (!userId || !plan || !Number.isFinite(credits) || credits <= 0) {
-      return res.status(400).json({ message: "Invalid payment update" });
+    if (
+      !userId ||
+      !plan ||
+      !Number.isFinite(credits) ||
+      credits <= 0
+    ) {
+      return res.status(400).json({
+        message: "Invalid payment update",
+      });
     }
 
     const user = await User.findById(userId);
 
     if (!user) {
-      return res.status(404).json({ message: "User not found" });
+      return res.status(404).json({
+        message: "User not found",
+      });
     }
 
     const days = Number(validity) > 0 ? Number(validity) : 30;
@@ -207,16 +253,23 @@ export const updateUserPayment = async (req, res) => {
     user.plan = plan;
     user.credits += credits;
     user.totalCredits += credits;
-    user.planExpiresAt = new Date(Date.now() + days * 24 * 60 * 60 * 1000);
+    user.planExpiresAt = new Date(
+      Date.now() + days * 24 * 60 * 60 * 1000
+    );
+
     await user.save();
 
     await refreshSession(user, sessionId);
 
-    return res.status(200).json({ success: true });
+    return res.status(200).json({
+      success: true,
+    });
   } catch (error) {
-    return res
-      .status(500)
-      .json({ message: `Update user payment error ${error}` });
+    console.error("Update user payment error:", error);
+
+    return res.status(500).json({
+      message: "Unable to update user payment",
+    });
   }
 };
 
@@ -229,27 +282,39 @@ const COST = {
   vision: 10,
 };
 
-// Called by the agent service after a request succeeded.
+// DEDUCT CREDITS
 export const deductCredits = async (req, res) => {
   try {
     if (!isInternalRequest(req)) {
-      return res.status(403).json({ message: "Forbidden" });
+      return res.status(403).json({
+        message: "Forbidden",
+      });
     }
 
-    const { userId, agent } = req.body;
+    const { userId, agent } = req.body || {};
 
     if (!userId) {
-      return res.status(400).json({ message: "userId is required" });
+      return res.status(400).json({
+        message: "userId is required",
+      });
     }
 
-    const requiredCredits = Object.hasOwn(COST, agent) ? COST[agent] : 1;
+    const requiredCredits = Object.hasOwn(COST, agent)
+      ? COST[agent]
+      : 1;
 
-    // One atomic update: two requests at the same moment can't spend the same
-    // credits twice, and the balance can never go below zero.
+    // Atomic update prevents concurrent requests from overspending.
     const user = await User.findOneAndUpdate(
-      { _id: userId, credits: { $gte: requiredCredits } },
-      { $inc: { credits: -requiredCredits } },
-      { new: true },
+      {
+        _id: userId,
+        credits: { $gte: requiredCredits },
+      },
+      {
+        $inc: { credits: -requiredCredits },
+      },
+      {
+        new: true,
+      }
     );
 
     if (!user) {
@@ -257,15 +322,24 @@ export const deductCredits = async (req, res) => {
 
       return res
         .status(exists ? 402 : 404)
-        .json({ message: exists ? "Not enough credit" : "User not found" });
+        .json({
+          message: exists
+            ? "Not enough credit"
+            : "User not found",
+        });
     }
 
-    // Before, a brand-new random session was written here, so the user's real
-    // session (and the sidebar) never saw the new balance.
     await refreshSession(user);
 
-    return res.status(200).json({ success: true, credits: user.credits });
+    return res.status(200).json({
+      success: true,
+      credits: user.credits,
+    });
   } catch (error) {
-    return res.status(500).json({ message: `deduct credits error ${error}` });
+    console.error("Deduct credits error:", error);
+
+    return res.status(500).json({
+      message: "Unable to deduct credits",
+    });
   }
 };
