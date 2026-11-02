@@ -121,8 +121,8 @@ export const login = async (req, res) => {
     // 4. Set the session cookie
     res.cookie("session", sessionId, {
       httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
+      secure: true,
+      sameSite: "none",
       maxAge: 7 * 24 * 60 * 60 * 1000,
       path: "/",
     });
