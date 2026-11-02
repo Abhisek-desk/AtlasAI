@@ -24,10 +24,12 @@ export const createConversation = async (req, res) => {
 // Get all conversations belonging to the logged-in user
 export const getConversations = async (req, res) => {
   try {
-    const userId = req.headers["x-user-id"];
+    const userId = req.user?._id || req.user?.id;
 
     if (!userId) {
-      return res.status(401).json({ message: "User ID is missing" });
+      return res.status(401).json({
+        message: "Authentication required",
+      });
     }
 
     const conversations = await Conversation.find({ userId }).sort({
@@ -37,6 +39,7 @@ export const getConversations = async (req, res) => {
     return res.status(200).json({ conversations });
   } catch (error) {
     console.error("Error fetching conversations:", error);
+
     return res.status(500).json({
       message: "Failed to fetch conversations",
     });
