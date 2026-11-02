@@ -1,5 +1,12 @@
 import { initializeApp, cert, getApps } from "firebase-admin/app";
-import serviceAccount from "../serviceAccountKey.json" with { type: "json" };
+
+const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT;
+
+if (!serviceAccountJson) {
+  throw new Error("Missing FIREBASE_SERVICE_ACCOUNT environment variable");
+}
+
+const serviceAccount = JSON.parse(serviceAccountJson);
 
 const app =
   getApps().length > 0
@@ -8,4 +15,4 @@ const app =
         credential: cert(serviceAccount),
       });
 
-export default app
+export default app;
