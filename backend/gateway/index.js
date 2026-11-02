@@ -13,7 +13,7 @@ const port = process.env.PORT;
 
 const app = express();
 const allowedOrigins = [
-  "https://atlasai-3z2.pages.dev",
+  "https://atlas-ai-psi-dun.vercel.app/",
   "http://localhost:5173",
   "http://localhost:5174",
   "http://localhost:3000",
