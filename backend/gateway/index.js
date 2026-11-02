@@ -12,6 +12,7 @@ dotenv.config({ override: true });
 const port = process.env.PORT;
 
 const app = express();
+
 // Origins are compared exactly, so strip any trailing slash from every entry.
 const normalizeOrigin = (value) =>
   String(value || "")
@@ -105,10 +106,24 @@ app.use(
 
 app.get("/api/me", protect, getCurrentUser);
 
+// Open this URL in a browser to confirm which version Render is running.
 app.get("/", (req, res) => {
-  res.json({ message: "Gateway is running" });
+  res.json({ message: "Gateway is running", version: "cors-fix-2" });
+});
+
+// Last resort: any error becomes JSON. The cors middleware above has already
+// added its headers, so the browser shows the real error instead of "CORS".
+app.use((err, req, res, next) => {
+  console.error("Gateway error:", err?.message || err);
+
+  if (res.headersSent) return next(err);
+
+  return res
+    .status(err?.status || 500)
+    .json({ message: err?.message || "Gateway error" });
 });
 
 app.listen(port, () => {
   console.log(`Gateway started at ${port}`);
+  console.log(`Allowed origins: ${allowedOrigins.join(", ")}`);
 });
