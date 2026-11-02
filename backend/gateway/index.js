@@ -12,30 +12,39 @@ dotenv.config({ override: true });
 const port = process.env.PORT;
 
 const app = express();
+// Origins are compared exactly, so strip any trailing slash from every entry.
+const normalizeOrigin = (value) =>
+  String(value || "")
+    .trim()
+    .replace(/\/+$/, "");
+
+// FRONTEND_URL can hold several addresses separated by commas.
 const allowedOrigins = [
-  "https://atlas-ai-psi-dun.vercel.app/",
+  ...String(process.env.FRONTEND_URL || "").split(","),
+  "https://atlas-ai-psi-dun.vercel.app",
   "http://localhost:5173",
   "http://localhost:5174",
   "http://localhost:3000",
-];
+]
+  .map(normalizeOrigin)
+  .filter(Boolean);
 
 app.use(
   cors({
     origin: (origin, callback) => {
       // Allow requests without an Origin header, such as server-to-server calls.
-      if (!origin || allowedOrigins.includes(origin)) {
-        return callback(null, true);
-      }
+      if (!origin) return callback(null, true);
 
-      return callback(new Error(`CORS blocked origin: ${origin}`));
+      // A blocked origin just gets no CORS headers. It must not throw,
+      // because that turns into a 500 that hides the real problem.
+      return callback(null, allowedOrigins.includes(normalizeOrigin(origin)));
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
     exposedHeaders: ["Content-Disposition", "Content-Type"],
-  })
+  }),
 );
-
 
 app.use(morgan("dev"));
 app.use(cookieParser());
