@@ -22,7 +22,7 @@ const normalizeOrigin = (value) =>
 // FRONTEND_URL can hold several addresses separated by commas.
 const allowedOrigins = [
   ...String(process.env.FRONTEND_URL || "").split(","),
-  "https://atlas-ai-psi-dun.vercel.app",
+  "https://atlas-ai-amber.vercel.app",
   "http://localhost:5173",
   "http://localhost:5174",
   "http://localhost:3000",
