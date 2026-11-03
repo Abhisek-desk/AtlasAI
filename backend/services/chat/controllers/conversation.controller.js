@@ -1,10 +1,27 @@
+import mongoose from "mongoose";
 import Conversation from "../models/conversation.model.js";
 import Message from "../models/message.model.js";
+
+// The gateway verifies the session and sends the user's ID in this header.
+const getUserId = (req) => req.headers["x-user-id"];
+
+// Returns the conversation only if it belongs to this user, otherwise null.
+const findOwnedConversation = async (conversationId, userId) => {
+  if (!mongoose.isValidObjectId(conversationId)) return null;
+
+  const conversation = await Conversation.findById(conversationId);
+
+  if (!conversation || String(conversation.userId) !== String(userId)) {
+    return null;
+  }
+
+  return conversation;
+};
 
 // Create a new conversation
 export const createConversation = async (req, res) => {
   try {
-    const userId = req.headers["x-user-id"];
+    const userId = getUserId(req);
 
     if (!userId) {
       return res.status(401).json({ message: "User ID is missing" });
@@ -24,7 +41,7 @@ export const createConversation = async (req, res) => {
 // Get all conversations belonging to the logged-in user
 export const getConversations = async (req, res) => {
   try {
-    const userId = req.user?._id || req.user?.id;
+    const userId = getUserId(req);
 
     if (!userId) {
       return res.status(401).json({
@@ -49,11 +66,26 @@ export const getConversations = async (req, res) => {
 // Update a conversation title
 export const updateConversation = async (req, res) => {
   try {
+    const userId = getUserId(req);
     const { conversationId, title } = req.body;
+
+    if (!userId) {
+      return res.status(401).json({
+        message: "Authentication required",
+      });
+    }
 
     if (!conversationId || !title) {
       return res.status(400).json({
         message: "Conversation ID and title are required",
+      });
+    }
+
+    const owned = await findOwnedConversation(conversationId, userId);
+
+    if (!owned) {
+      return res.status(404).json({
+        message: "Conversation not found",
       });
     }
 
@@ -62,12 +94,6 @@ export const updateConversation = async (req, res) => {
       { title },
       { new: true, runValidators: true },
     );
-
-    if (!conversation) {
-      return res.status(404).json({
-        message: "Conversation not found",
-      });
-    }
 
     return res.status(200).json({ conversation });
   } catch (error) {
@@ -79,7 +105,8 @@ export const updateConversation = async (req, res) => {
   }
 };
 
-// Save a message
+// Save a message. The agent service calls this internally (no user header),
+// so it is not tied to the logged-in user.
 export const saveMessage = async (req, res) => {
   try {
     const { conversationId, role, content, images, artifacts, files } =
@@ -117,7 +144,22 @@ export const saveMessage = async (req, res) => {
 // Get all messages for a conversation
 export const getMessages = async (req, res) => {
   try {
+    const userId = getUserId(req);
     const { conversationId } = req.params;
+
+    if (!userId) {
+      return res.status(401).json({
+        message: "Authentication required",
+      });
+    }
+
+    const owned = await findOwnedConversation(conversationId, userId);
+
+    if (!owned) {
+      return res.status(404).json({
+        message: "Conversation not found",
+      });
+    }
 
     const messages = await Message.find({ conversationId }).sort({
       createdAt: 1,
