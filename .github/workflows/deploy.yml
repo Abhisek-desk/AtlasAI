@@ -1,8 +1,173 @@
-name: atlas ai deployment
+name: CI and Deploy
 
 on:
   push:
-    branches:
-      - main
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch: # manual run from the Actions tab: redeploys every service
 
+# Never cancel a running deploy; only cancel outdated pull request checks.
+concurrency:
+  group: ci-deploy-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # 1. Checks (run on every push and pull request)
+  # ---------------------------------------------------------------------------
+  backend-check:
+    name: Backend syntax check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Check every backend .js file parses
+        shell: bash
+        run: |
+          fail=0
+          while IFS= read -r file; do
+            if ! node --check "$file"; then
+              echo "::error file=$file::Syntax error"
+              fail=1
+            fi
+          done < <(find backend -name "*.js" -not -path "*/node_modules/*")
+          exit $fail
+
+  frontend-build:
+    name: Frontend build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+
+      - run: npm run build
+        env:
+          # Only used to prove the build works; Vercel uses its own value.
+          VITE_SERVER_URL: ${{ vars.VITE_SERVER_URL || 'https://example.onrender.com' }}
+
+  # ---------------------------------------------------------------------------
+  # 2. Work out what changed (so only affected services are redeployed)
+  # ---------------------------------------------------------------------------
+  changes:
+    name: Detect changed services
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    outputs:
+      services: ${{ steps.filter.outputs.changes }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            gateway:
+              - 'backend/gateway/**'
+              - 'backend/shared/**'
+              - 'backend/package*.json'
+            auth:
+              - 'backend/services/auth/**'
+              - 'backend/shared/**'
+              - 'backend/package*.json'
+            chat:
+              - 'backend/services/chat/**'
+              - 'backend/shared/**'
+              - 'backend/package*.json'
+            agent:
+              - 'backend/services/agent/**'
+              - 'backend/shared/**'
+              - 'backend/package*.json'
+            billing:
+              - 'backend/services/billing/**'
+              - 'backend/shared/**'
+              - 'backend/package*.json'
+            frontend:
+              - 'frontend/**'
+
+  # ---------------------------------------------------------------------------
+  # 3. Deploy backend services to Render (only after the checks pass)
+  # ---------------------------------------------------------------------------
+  deploy-backend:
+    name: Deploy ${{ matrix.service }}
+    needs: [backend-check, frontend-build, changes]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        service: [gateway, auth, chat, agent, billing]
+    steps:
+      - name: Trigger Render deploy hook
+        if: contains(fromJSON(needs.changes.outputs.services), matrix.service) || github.event_name == 'workflow_dispatch'
+        shell: bash
+        env:
+          DEPLOY_HOOK: ${{ secrets[format('RENDER_DEPLOY_HOOK_{0}', matrix.service)] }}
+        run: |
+          if [ -z "$DEPLOY_HOOK" ]; then
+            echo "::error::Missing secret RENDER_DEPLOY_HOOK_${{ matrix.service }}"
+            exit 1
+          fi
+
+          curl --fail --silent --show-error --retry 3 --retry-delay 10 \
+            -X POST "$DEPLOY_HOOK" > /dev/null
+
+          echo "Deploy triggered for ${{ matrix.service }}"
+
+      - name: Nothing to deploy
+        if: ${{ !(contains(fromJSON(needs.changes.outputs.services), matrix.service) || github.event_name == 'workflow_dispatch') }}
+        run: echo "No changes for ${{ matrix.service }}, skipping."
+
+  # ---------------------------------------------------------------------------
+  # 4. Optional: deploy the frontend to Vercel from GitHub Actions.
+  #    Off by default because Vercel's own GitHub integration already deploys
+  #    every push. Turn on with the repository variable
+  #    DEPLOY_VERCEL_FROM_ACTIONS=true (and turn off Vercel's Git deploys).
+  # ---------------------------------------------------------------------------
+  deploy-frontend:
+    name: Deploy frontend (Vercel)
+    needs: [backend-check, frontend-build, changes]
+    if: >-
+      github.event_name != 'pull_request' &&
+      vars.DEPLOY_VERCEL_FROM_ACTIONS == 'true' &&
+      (needs.changes.outputs.frontend == 'true' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-latest
+    env:
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+      VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - run: npm install --global vercel@latest
+
+      # Run from the repo root: the project's Root Directory (frontend) is
+      # set in the Vercel dashboard.
+      - run: vercel pull --yes --environment=production --token="$VERCEL_TOKEN"
+
+      - run: vercel build --prod --token="$VERCEL_TOKEN"
+
+      - run: vercel deploy --prebuilt --prod --token="$VERCEL_TOKEN"
