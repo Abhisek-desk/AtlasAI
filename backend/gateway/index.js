@@ -50,37 +50,87 @@ app.use(
 app.use(morgan("dev"));
 app.use(cookieParser());
 
+// When a service is down or still waking up, answer with JSON instead of
+// Render's HTML error page.
+const upstreamErrorHandler = (serviceName) => (err, res, next) => {
+  console.error(`${serviceName} service unreachable:`, err?.code || err?.message);
+
+  if (res.headersSent) return next(err);
+
+  return res.status(503).json({
+    message: `${serviceName} service is unavailable. Please try again in a moment.`,
+  });
+};
+
+const hideHtmlErrors =
+  (serviceName) => (proxyRes, proxyResData, userReq, userRes) => {
+    if (proxyRes.statusCode >= 502 && proxyRes.statusCode <= 504) {
+      console.error(`${serviceName} service returned ${proxyRes.statusCode}`);
+
+      userRes.set("Content-Type", "application/json; charset=utf-8");
+
+      return JSON.stringify({
+        message: `${serviceName} service is starting or unavailable. Please try again in a moment.`,
+      });
+    }
+
+    return proxyResData;
+  };
+
+const serviceOptions = (serviceName, extra = {}) => ({
+  // A sleeping Render service can take about a minute to wake up.
+  timeout: 90000,
+  proxyErrorHandler: upstreamErrorHandler(serviceName),
+  userResDecorator: hideHtmlErrors(serviceName),
+  ...extra,
+});
+
 app.use(
   "/api/auth",
-  proxy(process.env.AUTH_SERVICE, {
-    proxyReqPathResolver: (req) => `/auth${req.url}`,
-  }),
+  proxy(
+    process.env.AUTH_SERVICE,
+    serviceOptions("Auth", {
+      proxyReqPathResolver: (req) => `/auth${req.url}`,
+    }),
+  ),
 );
+
 app.use(
   "/api/chat",
   protect,
-  proxyWithHeader(process.env.CHAT_SERVICE, {
-    proxyReqPathResolver: (req) => `/chat${req.url}`,
-  }),
+  proxyWithHeader(
+    process.env.CHAT_SERVICE,
+    serviceOptions("Chat", {
+      proxyReqPathResolver: (req) => `/chat${req.url}`,
+    }),
+  ),
 );
 
 app.use(
   "/api/agent",
   protect,
   requireCredits,
-  proxyWithHeader(process.env.AGENT_SERVICE, {
-    // express-http-proxy rejects bodies over 1mb by default; uploads can be 20mb.
-    limit: "25mb",
-    proxyReqPathResolver: (req) => `/agent${req.url}`,
-  }),
+  proxyWithHeader(
+    process.env.AGENT_SERVICE,
+    serviceOptions("Agent", {
+      // express-http-proxy rejects bodies over 1mb by default; uploads can be 20mb.
+      limit: "25mb",
+      // Model calls can be slow.
+      timeout: 180000,
+      proxyReqPathResolver: (req) => `/agent${req.url}`,
+    }),
+  ),
 );
 
 app.use(
   "/api/billing",
   protect,
-  proxyWithHeader(process.env.BILLING_SERVICE, {
-    proxyReqPathResolver: (req) => `/billing${req.url}`,
-  }),
+  proxyWithHeader(
+    process.env.BILLING_SERVICE,
+    serviceOptions("Billing", {
+      proxyReqPathResolver: (req) => `/billing${req.url}`,
+    }),
+  ),
 );
 
 app.use(
@@ -88,6 +138,7 @@ app.use(
   proxy(process.env.AGENT_SERVICE, {
     // Do not buffer the file as JSON; PDF/PPT bytes must pass through as-is.
     parseReqBody: false,
+    proxyErrorHandler: upstreamErrorHandler("Agent"),
     proxyReqPathResolver: (req) => {
       const original = req.originalUrl || req.url || "";
       const qIndex = original.indexOf("?");
@@ -108,7 +159,48 @@ app.get("/api/me", protect, getCurrentUser);
 
 // Open this URL in a browser to confirm which version Render is running.
 app.get("/", (req, res) => {
-  res.json({ message: "Gateway is running", version: "cors-fix-2" });
+  res.json({ message: "Gateway is running", version: "cors-fix-3" });
+});
+
+// Shows which service is down. It also wakes sleeping services, because each
+// one gets a request.
+app.get("/health", async (req, res) => {
+  const targets = {
+    auth: process.env.AUTH_SERVICE,
+    chat: process.env.CHAT_SERVICE,
+    agent: process.env.AGENT_SERVICE,
+    billing: process.env.BILLING_SERVICE,
+  };
+
+  const services = {};
+
+  await Promise.all(
+    Object.entries(targets).map(async ([name, url]) => {
+      const started = Date.now();
+
+      try {
+        const response = await fetch(url, {
+          signal: AbortSignal.timeout(60000),
+        });
+
+        services[name] = {
+          ok: response.ok,
+          status: response.status,
+          ms: Date.now() - started,
+        };
+      } catch (error) {
+        services[name] = {
+          ok: false,
+          error: error.name === "TimeoutError" ? "timeout" : error.message,
+          ms: Date.now() - started,
+        };
+      }
+    }),
+  );
+
+  const allOk = Object.values(services).every((service) => service.ok);
+
+  return res.status(allOk ? 200 : 503).json({ gateway: "ok", services });
 });
 
 // Last resort: any error becomes JSON. The cors middleware above has already

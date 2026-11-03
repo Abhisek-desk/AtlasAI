@@ -49,4 +49,34 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// Free Render services sleep when idle and answer 502/503/504 (or nothing at
+// all) while they wake up. Retry GET requests a few times so the user does not
+// see an error for a normal cold start.
+const RETRY_STATUSES = [502, 503, 504];
+const MAX_RETRIES = 3;
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+api.interceptors.response.use(undefined, async (error) => {
+  const config = error.config;
+  const isGet = config?.method?.toLowerCase() === "get";
+
+  const retriable = error.response
+    ? RETRY_STATUSES.includes(error.response.status)
+    : error.code !== "ERR_CANCELED";
+
+  if (!config || !isGet || !retriable) {
+    return Promise.reject(error);
+  }
+
+  config.__retryCount = (config.__retryCount || 0) + 1;
+
+  if (config.__retryCount > MAX_RETRIES) {
+    return Promise.reject(error);
+  }
+
+  await sleep(config.__retryCount * 4000);
+
+  return api(config);
+});
+
 export default api;
