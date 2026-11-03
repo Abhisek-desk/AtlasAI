@@ -320,15 +320,16 @@ const ChatInput = ({
       );
 
       const status = error.response?.status;
+      const serverMessage = error.response?.data?.message;
 
       dispatch(
         setMessageError(
           status === 402
-            ? error.response?.data?.message ||
+            ? serverMessage ||
                 "You're out of credits. Tap the credits card in the menu to add more."
             : status === 413
               ? "That file is too large (max 20 MB)."
-              : "Failed to send message.",
+              : serverMessage || "Failed to send message.",
         ),
       );
     } finally {

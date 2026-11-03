@@ -53,7 +53,10 @@ app.use(cookieParser());
 // When a service is down or still waking up, answer with JSON instead of
 // Render's HTML error page.
 const upstreamErrorHandler = (serviceName) => (err, res, next) => {
-  console.error(`${serviceName} service unreachable:`, err?.code || err?.message);
+  console.error(
+    `${serviceName} service unreachable:`,
+    err?.code || err?.message,
+  );
 
   if (res.headersSent) return next(err);
 
@@ -64,13 +67,21 @@ const upstreamErrorHandler = (serviceName) => (err, res, next) => {
 
 const hideHtmlErrors =
   (serviceName) => (proxyRes, proxyResData, userReq, userRes) => {
-    if (proxyRes.statusCode >= 502 && proxyRes.statusCode <= 504) {
-      console.error(`${serviceName} service returned ${proxyRes.statusCode}`);
+    const status = proxyRes.statusCode;
+
+    // Express always sends x-powered-by. A 404 without it came from Render,
+    // which means the service address in the gateway's environment is wrong.
+    const urlLooksWrong = status === 404 && !proxyRes.headers["x-powered-by"];
+
+    if (urlLooksWrong || (status >= 502 && status <= 504)) {
+      console.error(`${serviceName} service returned ${status}`);
 
       userRes.set("Content-Type", "application/json; charset=utf-8");
 
       return JSON.stringify({
-        message: `${serviceName} service is starting or unavailable. Please try again in a moment.`,
+        message: urlLooksWrong
+          ? `${serviceName} service was not found. Check the ${serviceName.toUpperCase()}_SERVICE address on the gateway.`
+          : `${serviceName} service is starting or unavailable. Please try again in a moment.`,
       });
     }
 
