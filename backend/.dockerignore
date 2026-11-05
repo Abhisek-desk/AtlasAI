@@ -1,0 +1,11 @@
+**/node_modules
+**/.env
+**/.env.*
+**/generated
+**/temp
+**/serviceAccountKey.json
+**/make-test-link.mjs
+.git
+docker-compose.yml
+**/*.md
+**/*.log

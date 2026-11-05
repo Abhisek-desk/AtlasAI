@@ -5,3 +5,6 @@ node_modules/
 serviceAccountKey.json
 **/serviceAccountKey.json
 **/generated/
+
+**/temp/
+backend/services/agent/make-test-link.mjs

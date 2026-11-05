@@ -5,7 +5,7 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
-  workflow_dispatch: # manual run from the Actions tab: redeploys every service
+  workflow_dispatch: # manual run from the Actions tab
 
 # Never cancel a running deploy; only cancel outdated pull request checks.
 concurrency:
@@ -17,9 +17,7 @@ permissions:
   pull-requests: read
 
 jobs:
-  # ---------------------------------------------------------------------------
-  # 1. Checks (run on every push and pull request)
-  # ---------------------------------------------------------------------------
+  # 1. Checks (every push and pull request)
   backend-check:
     name: Backend syntax check
     runs-on: ubuntu-latest
@@ -30,7 +28,7 @@ jobs:
         with:
           node-version: 22
 
-      - name: Check every backend .js file parses
+      - name: Check every backend .js and .mjs file parses
         shell: bash
         run: |
           fail=0
@@ -39,7 +37,7 @@ jobs:
               echo "::error file=$file::Syntax error"
               fail=1
             fi
-          done < <(find backend -name "*.js" -not -path "*/node_modules/*")
+          done < <(find backend \( -name "*.js" -o -name "*.mjs" \) -not -path "*/node_modules/*")
           exit $fail
 
   frontend-build:
@@ -64,15 +62,13 @@ jobs:
           # Only used to prove the build works; Vercel uses its own value.
           VITE_SERVER_URL: ${{ vars.VITE_SERVER_URL || 'https://example.onrender.com' }}
 
-  # ---------------------------------------------------------------------------
-  # 2. Work out what changed (so only affected services are redeployed)
-  # ---------------------------------------------------------------------------
+  # 2. Did the backend or frontend change?
   changes:
-    name: Detect changed services
+    name: Detect changes
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     outputs:
-      services: ${{ steps.filter.outputs.changes }}
+      backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
     steps:
       - uses: actions/checkout@v4
@@ -81,68 +77,39 @@ jobs:
         id: filter
         with:
           filters: |
-            gateway:
-              - 'backend/gateway/**'
-              - 'backend/shared/**'
-              - 'backend/package*.json'
-            auth:
-              - 'backend/services/auth/**'
-              - 'backend/shared/**'
-              - 'backend/package*.json'
-            chat:
-              - 'backend/services/chat/**'
-              - 'backend/shared/**'
-              - 'backend/package*.json'
-            agent:
-              - 'backend/services/agent/**'
-              - 'backend/shared/**'
-              - 'backend/package*.json'
-            billing:
-              - 'backend/services/billing/**'
-              - 'backend/shared/**'
-              - 'backend/package*.json'
+            backend:
+              - 'backend/**'
             frontend:
               - 'frontend/**'
 
-  # ---------------------------------------------------------------------------
-  # 3. Deploy backend services to Render (only after the checks pass)
-  # ---------------------------------------------------------------------------
+  # 3. Deploy the single Render service (gateway + all services in one container)
   deploy-backend:
-    name: Deploy ${{ matrix.service }}
+    name: Deploy backend (Render)
     needs: [backend-check, frontend-build, changes]
-    if: github.event_name != 'pull_request'
+    if: >-
+      github.event_name != 'pull_request' &&
+      (needs.changes.outputs.backend == 'true' || github.event_name == 'workflow_dispatch')
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        service: [gateway, auth, chat, agent, billing]
     steps:
       - name: Trigger Render deploy hook
-        if: contains(fromJSON(needs.changes.outputs.services), matrix.service) || github.event_name == 'workflow_dispatch'
         shell: bash
         env:
-          DEPLOY_HOOK: ${{ secrets[format('RENDER_DEPLOY_HOOK_{0}', matrix.service)] }}
+          DEPLOY_HOOK: ${{ secrets.RENDER_DEPLOY_HOOK }}
         run: |
           if [ -z "$DEPLOY_HOOK" ]; then
-            echo "::error::Missing secret RENDER_DEPLOY_HOOK_${{ matrix.service }}"
+            echo "::error::Missing secret RENDER_DEPLOY_HOOK"
             exit 1
           fi
 
           curl --fail --silent --show-error --retry 3 --retry-delay 10 \
             -X POST "$DEPLOY_HOOK" > /dev/null
 
-          echo "Deploy triggered for ${{ matrix.service }}"
+          echo "Deploy triggered"
 
-      - name: Nothing to deploy
-        if: ${{ !(contains(fromJSON(needs.changes.outputs.services), matrix.service) || github.event_name == 'workflow_dispatch') }}
-        run: echo "No changes for ${{ matrix.service }}, skipping."
-
-  # ---------------------------------------------------------------------------
   # 4. Optional: deploy the frontend to Vercel from GitHub Actions.
   #    Off by default because Vercel's own GitHub integration already deploys
   #    every push. Turn on with the repository variable
   #    DEPLOY_VERCEL_FROM_ACTIONS=true (and turn off Vercel's Git deploys).
-  # ---------------------------------------------------------------------------
   deploy-frontend:
     name: Deploy frontend (Vercel)
     needs: [backend-check, frontend-build, changes]
