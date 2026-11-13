@@ -1,10 +1,4 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 
 const MENU_WIDTH = 232;
@@ -15,13 +9,17 @@ const MENU_WIDTH = 232;
 // because a phone's keyboard also triggers resize/scroll).
 const PopupMenu = ({ anchorRef, open, onClose, children }) => {
   const menuRef = useRef(null);
-  const [position, setPosition] = useState(null);
 
+  // Writes the position straight onto the menu element instead of keeping it
+  // in React state, so there is no state update inside an effect.
   const place = useCallback(() => {
-    if (!anchorRef.current) return;
+    const anchor = anchorRef.current;
+    const menu = menuRef.current;
 
-    const rect = anchorRef.current.getBoundingClientRect();
-    const height = menuRef.current?.offsetHeight || 220;
+    if (!anchor || !menu) return;
+
+    const rect = anchor.getBoundingClientRect();
+    const height = menu.offsetHeight || 220;
 
     const left = Math.max(
       8,
@@ -33,24 +31,18 @@ const PopupMenu = ({ anchorRef, open, onClose, children }) => {
       top = Math.max(8, rect.top - height - 6);
     }
 
-    setPosition((previous) =>
-      previous && previous.top === top && previous.left === left
-        ? previous
-        : { top, left },
-    );
+    menu.style.top = `${top}px`;
+    menu.style.left = `${left}px`;
   }, [anchorRef]);
 
-  // Runs after every render while open, so the menu also adjusts when its
-  // content changes size.
+  // Runs before the browser paints, after every render while open, so the menu
+  // never shows in the wrong place and adjusts when its content changes size.
   useLayoutEffect(() => {
     if (open) place();
   });
 
   useEffect(() => {
-    if (!open) {
-      setPosition(null);
-      return;
-    }
+    if (!open) return;
 
     const insideMenuOrButton = (target) =>
       menuRef.current?.contains(target) || anchorRef.current?.contains(target);
@@ -87,13 +79,7 @@ const PopupMenu = ({ anchorRef, open, onClose, children }) => {
     <div
       ref={menuRef}
       role="menu"
-      style={{
-        position: "fixed",
-        top: position?.top ?? 0,
-        left: position?.left ?? 0,
-        width: MENU_WIDTH,
-        visibility: position ? "visible" : "hidden",
-      }}
+      style={{ position: "fixed", width: MENU_WIDTH }}
       className="z-[60] rounded-xl border border-[#263247] bg-[#0F172A] p-1.5 text-sm text-[#CBD5E1] shadow-2xl shadow-black/50"
     >
       {children}
