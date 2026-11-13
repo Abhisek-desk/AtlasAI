@@ -3,27 +3,76 @@ import {
   SquarePen,
   LogOut,
   Coins,
-  MessageSquare,
   X,
+  FolderKanban,
+  Pin,
+  ChevronDown,
+  Plus,
 } from "lucide-react";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useDispatch, useSelector } from "react-redux";
 import { useNavigate } from "react-router-dom";
 
 import { getConversations } from "../features/getConversations.js";
 import { createConversation } from "../features/createConversation.js";
+import { createProject, fetchProjects } from "../features/organize.js";
 import logout from "../features/logout.js";
 
 import {
   addConversation,
+  addProject,
   setConversations,
+  setProjects,
   clearSelectedConversation,
 } from "../redux/conversationSlice.js";
 import { clearMessages } from "../redux/messageSlice.js";
 import { setUserData } from "../redux/userSlice.js";
 
 import BillingDrawer from "./BillingDrawer";
+import ChatRow from "./ChatRow.jsx";
+import ProjectRow from "./ProjectRow.jsx";
+
+const NO_CHATS = [];
+
+// A "Projects" / "Pinned chats" row under the New Chat button. It opens or
+// closes its list; on the icon-only rail it expands the sidebar first.
+const SectionButton = ({
+  icon: Icon,
+  label,
+  count,
+  open,
+  onClick,
+  labelHidden,
+  railCenter,
+}) => (
+  <button
+    type="button"
+    title={label}
+    aria-expanded={open}
+    onClick={onClick}
+    className={`flex h-10 w-full min-w-0 items-center justify-start gap-3 rounded-lg px-3 text-sm text-[#94A3B8] transition-colors hover:bg-[#1E293B] hover:text-[#F1F5F9] ${railCenter}`}
+  >
+    <Icon size={17} className="shrink-0 text-[#A78BFA]" />
+
+    <span className={`min-w-0 flex-1 truncate text-left ${labelHidden}`}>
+      {label}
+    </span>
+
+    <span
+      className={`rounded-md bg-[#1E293B] px-1.5 py-0.5 text-[11px] text-[#64748B] ${labelHidden}`}
+    >
+      {count}
+    </span>
+
+    <ChevronDown
+      size={14}
+      className={`shrink-0 text-[#64748B] transition-transform ${
+        open ? "" : "-rotate-90"
+      } ${labelHidden}`}
+    />
+  </button>
+);
 
 // Phones: a slide-in drawer (mobileOpen / onMobileClose come from Home).
 // md and up: a normal column that can be collapsed to an icon rail.
@@ -31,10 +80,18 @@ const Sidebar = ({ mobileOpen = false, onMobileClose }) => {
   const [collapsed, setCollapsed] = useState(false);
   const [showBilling, setShowBilling] = useState(false);
 
+  const [projectsOpen, setProjectsOpen] = useState(false);
+  const [pinnedOpen, setPinnedOpen] = useState(false);
+  const [creatingProject, setCreatingProject] = useState(false);
+  const [newProjectName, setNewProjectName] = useState("");
+  const [savingProject, setSavingProject] = useState(false);
+  // Which project just received a chat (so it opens): { projectId, tick }
+  const [highlight, setHighlight] = useState({ projectId: null, tick: 0 });
+
   const dispatch = useDispatch();
   const navigate = useNavigate();
 
-  const { conversations, selectedConversation } = useSelector(
+  const { conversations, selectedConversation, projects } = useSelector(
     (state) => state.conversation,
   );
 
@@ -48,22 +105,65 @@ const Sidebar = ({ mobileOpen = false, onMobileClose }) => {
 
   const closeMobile = () => onMobileClose?.();
 
-  // Load conversations once the user is logged in (the request is
+  const safeConversations = useMemo(
+    () => (Array.isArray(conversations) ? conversations : NO_CHATS),
+    [conversations],
+  );
+  const safeProjects = useMemo(
+    () => (Array.isArray(projects) ? projects : NO_CHATS),
+    [projects],
+  );
+
+  // Pinned chats, chats grouped by project, and the rest ("Recent").
+  const { pinnedChats, chatsByProject, recentChats } = useMemo(() => {
+    const projectIds = new Set(safeProjects.map((project) => project._id));
+    const byProject = new Map();
+    const pinnedList = [];
+    const recentList = [];
+
+    for (const conversation of safeConversations) {
+      const projectId = conversation.projectId
+        ? String(conversation.projectId)
+        : null;
+      const inProject = projectId && projectIds.has(projectId);
+
+      if (conversation.pinned) pinnedList.push(conversation);
+
+      if (inProject) {
+        if (!byProject.has(projectId)) byProject.set(projectId, []);
+        byProject.get(projectId).push(conversation);
+      } else if (!conversation.pinned) {
+        recentList.push(conversation);
+      }
+    }
+
+    return {
+      pinnedChats: pinnedList,
+      chatsByProject: byProject,
+      recentChats: recentList,
+    };
+  }, [safeConversations, safeProjects]);
+
+  // Load conversations and projects once the user is logged in (the request is
   // unauthorised before that, and would otherwise never be retried).
   useEffect(() => {
     if (!isLoggedIn) return;
 
     let cancelled = false;
 
-    const getConv = async () => {
-      const data = await getConversations();
+    const load = async () => {
+      const [chatList, projectList] = await Promise.all([
+        getConversations(),
+        fetchProjects(),
+      ]);
 
       if (!cancelled) {
-        dispatch(setConversations(Array.isArray(data) ? data : []));
+        dispatch(setConversations(Array.isArray(chatList) ? chatList : []));
+        dispatch(setProjects(projectList));
       }
     };
 
-    getConv();
+    load();
 
     return () => {
       cancelled = true;
@@ -114,6 +214,7 @@ const Sidebar = ({ mobileOpen = false, onMobileClose }) => {
 
     dispatch(setUserData(null));
     dispatch(setConversations([]));
+    dispatch(setProjects([]));
     dispatch(clearSelectedConversation());
     dispatch(clearMessages());
 
@@ -123,6 +224,44 @@ const Sidebar = ({ mobileOpen = false, onMobileClose }) => {
   const openBilling = () => {
     closeMobile();
     setShowBilling(true);
+  };
+
+  // On the icon rail, a section button first expands the sidebar.
+  const toggleSection = (setOpen) => {
+    if (collapsed) {
+      setCollapsed(false);
+      setOpen(true);
+    } else {
+      setOpen((previous) => !previous);
+    }
+  };
+
+  // After a chat is pinned or added to a project, open that section.
+  const handlePinChange = (isPinned) => {
+    if (isPinned) setPinnedOpen(true);
+  };
+
+  const handleMoved = (projectId) => {
+    if (!projectId) return;
+
+    setProjectsOpen(true);
+    setHighlight((previous) => ({ projectId, tick: previous.tick + 1 }));
+  };
+
+  const submitNewProject = async () => {
+    const name = newProjectName.trim();
+
+    if (!name || savingProject) return;
+
+    setSavingProject(true);
+    const project = await createProject(name);
+    setSavingProject(false);
+
+    if (project) {
+      dispatch(addProject(project));
+      setNewProjectName("");
+      setCreatingProject(false);
+    }
   };
 
   const userName =
@@ -150,6 +289,23 @@ const Sidebar = ({ mobileOpen = false, onMobileClose }) => {
     credits !== null && totalCredits
       ? Math.max(0, Math.min(100, (credits / totalCredits) * 100))
       : 0;
+
+  const selectedId = selectedConversation?._id;
+
+  const renderChat = (conversation) => (
+    <ChatRow
+      key={conversation._id}
+      conversation={conversation}
+      selected={selectedId === conversation._id}
+      projects={safeProjects}
+      collapsed={collapsed}
+      labelHidden={labelHidden}
+      railCenter={railCenter}
+      onSelect={handleSelectConversation}
+      onPinChange={handlePinChange}
+      onMoved={handleMoved}
+    />
+  );
 
   return (
     <>
@@ -231,54 +387,135 @@ const Sidebar = ({ mobileOpen = false, onMobileClose }) => {
             </button>
           </div>
 
-          {/* Recent Chats */}
-          <div className="mt-7 min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3">
+          {/* Projects, pinned chats and recent chats */}
+          <div className="mt-4 min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-3 pb-2">
+            {/* Projects */}
+            <SectionButton
+              icon={FolderKanban}
+              label="Projects"
+              count={safeProjects.length}
+              open={projectsOpen && !collapsed}
+              onClick={() => toggleSection(setProjectsOpen)}
+              labelHidden={labelHidden}
+              railCenter={railCenter}
+            />
+
+            {projectsOpen && !collapsed && (
+              <div className="mb-2 mt-1 space-y-1">
+                {creatingProject ? (
+                  <div className="flex items-center gap-1.5 px-1">
+                    <input
+                      autoFocus
+                      value={newProjectName}
+                      maxLength={60}
+                      disabled={savingProject}
+                      placeholder="Project name"
+                      aria-label="New project name"
+                      onChange={(event) => setNewProjectName(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") submitNewProject();
+                        if (event.key === "Escape") {
+                          setCreatingProject(false);
+                          setNewProjectName("");
+                        }
+                      }}
+                      className="min-w-0 flex-1 rounded-lg border border-violet-400/40 bg-[#111A2E] px-3 py-2 text-sm text-[#F1F5F9] outline-none placeholder:text-[#64748B]"
+                    />
+
+                    <button
+                      type="button"
+                      aria-label="Cancel new project"
+                      onClick={() => {
+                        setCreatingProject(false);
+                        setNewProjectName("");
+                      }}
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[#94A3B8] hover:bg-[#1E293B] hover:text-white"
+                    >
+                      <X size={15} />
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setCreatingProject(true)}
+                    className="flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm text-[#94A3B8] transition-colors hover:bg-[#1E293B] hover:text-[#F1F5F9]"
+                  >
+                    <Plus size={15} className="shrink-0 text-[#A78BFA]" />
+                    New project
+                  </button>
+                )}
+
+                {safeProjects.map((project) => (
+                  <ProjectRow
+                    key={project._id}
+                    project={project}
+                    chats={chatsByProject.get(project._id) || NO_CHATS}
+                    projects={safeProjects}
+                    selectedId={selectedId}
+                    highlightTick={
+                      highlight.projectId === project._id ? highlight.tick : 0
+                    }
+                    onSelect={handleSelectConversation}
+                    onPinChange={handlePinChange}
+                    onMoved={handleMoved}
+                  />
+                ))}
+
+                {safeProjects.length === 0 && !creatingProject && (
+                  <p className="px-3 py-2 text-xs leading-5 text-[#64748B]">
+                    No projects yet. Group related chats in a project.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Pinned chats */}
+            <div className="mt-1">
+              <SectionButton
+                icon={Pin}
+                label="Pinned chats"
+                count={pinnedChats.length}
+                open={pinnedOpen && !collapsed}
+                onClick={() => toggleSection(setPinnedOpen)}
+                labelHidden={labelHidden}
+                railCenter={railCenter}
+              />
+            </div>
+
+            {pinnedOpen && !collapsed && (
+              <div className="mb-2 mt-1 space-y-1">
+                {pinnedChats.length > 0 ? (
+                  pinnedChats.map(renderChat)
+                ) : (
+                  <p className="px-3 py-2 text-xs leading-5 text-[#64748B]">
+                    No pinned chats. Open a chat&apos;s menu and choose
+                    &quot;Pin chat&quot;.
+                  </p>
+                )}
+              </div>
+            )}
+
+            {/* Recent chats */}
             <p
-              className={`mb-3 px-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#64748B] ${labelHidden}`}
+              className={`mb-3 mt-5 px-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-[#64748B] ${labelHidden}`}
             >
               Recent
             </p>
 
             <div className="space-y-1">
-              {Array.isArray(conversations) && conversations.length > 0 ? (
-                conversations.map((conversation) => {
-                  const isSelected =
-                    selectedConversation?._id === conversation._id;
-
-                  return (
-                    <button
-                      key={conversation._id}
-                      type="button"
-                      title={conversation.title || "New Chat"}
-                      onClick={() => handleSelectConversation(conversation)}
-                      className={`group flex w-full min-w-0 items-center justify-start gap-3 rounded-lg border px-3 py-3 text-left text-sm transition-all duration-150 md:py-2.5 ${railCenter} ${
-                        isSelected
-                          ? "border-violet-400/15 bg-violet-500/10 text-violet-200"
-                          : "border-transparent text-[#94A3B8] hover:bg-[#1E293B] hover:text-[#F1F5F9]"
-                      }`}
-                    >
-                      <MessageSquare
-                        size={16}
-                        className={`shrink-0 ${
-                          isSelected
-                            ? "text-[#A78BFA]"
-                            : "text-[#64748B] group-hover:text-[#A78BFA]"
-                        }`}
-                      />
-
-                      <span className={`truncate ${labelHidden}`}>
-                        {conversation.title || "New Chat"}
-                      </span>
-                    </button>
-                  );
-                })
+              {recentChats.length > 0 ? (
+                recentChats.map(renderChat)
               ) : (
                 <p
                   className={`px-3 py-4 text-center text-sm leading-6 text-[#64748B] ${labelHidden}`}
                 >
-                  No recent conversations
+                  {safeConversations.length > 0
+                    ? "No other chats"
+                    : "No recent conversations"}
                   <span className="mt-1 block text-xs text-[#475569]">
-                    Start a new chat to begin
+                    {safeConversations.length > 0
+                      ? "Your other chats are in Projects or Pinned"
+                      : "Start a new chat to begin"}
                   </span>
                 </p>
               )}

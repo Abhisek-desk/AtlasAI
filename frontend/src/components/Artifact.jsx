@@ -10,6 +10,8 @@ import {
 } from "lucide-react";
 import Editor from "@monaco-editor/react";
 import {
+  Suspense,
+  lazy,
   useEffect,
   useMemo,
   useRef,
@@ -20,10 +22,15 @@ import { useDispatch, useSelector } from "react-redux";
 import { motion } from "motion/react";
 
 import LoadingAnimation from "./LoadingAnimation";
+import { isReactProject } from "../../utils/reactProject.js";
 import {
   setArtifactMobileOpen,
   setArtifactOpen,
 } from "../redux/messageSlice.js";
+
+// The React preview (Sandpack) is large, so it is only downloaded when a React
+// project is opened.
+const ReactPreview = lazy(() => import("./ReactPreview.jsx"));
 
 // Same breakpoint as Tailwind's `lg`: side panel on desktop, full screen below.
 const DESKTOP_QUERY = "(min-width: 1024px)";
@@ -119,8 +126,7 @@ const findFile = (files, path) => {
   const base = clean.split("/").pop();
 
   return files.find(
-    (file) =>
-      file.name === clean || file.name.split("/").pop() === base,
+    (file) => file.name === clean || file.name.split("/").pop() === base,
   );
 };
 
@@ -206,7 +212,7 @@ const Artifact = () => {
   );
 
   const previewDoc = useMemo(() => buildPreviewDoc(files), [files]);
-
+  const reactProject = useMemo(() => isReactProject(files), [files]);
   const showMobileView = !isDesktop && artifactMobileOpen && files.length > 0;
 
   useEffect(() => () => clearTimeout(copyTimerRef.current), []);
@@ -231,7 +237,7 @@ const Artifact = () => {
   if (!isDesktop && !artifactMobileOpen) return null;
 
   const activeFile = files.find((file) => file.name === activeName) || files[0];
-  const canPreview = Boolean(previewDoc);
+  const canPreview = reactProject || Boolean(previewDoc);
   const currentView = canPreview && view === "preview" ? "preview" : "code";
 
   const handleEdit = (value) => {
@@ -362,12 +368,24 @@ const Artifact = () => {
 
   const body =
     currentView === "preview" ? (
-      <iframe
-        title="Preview"
-        srcDoc={previewDoc}
-        sandbox="allow-scripts allow-forms allow-modals"
-        className="min-h-0 w-full flex-1 bg-white"
-      />
+      reactProject ? (
+        <Suspense
+          fallback={
+            <div className="flex min-h-0 w-full flex-1 items-center justify-center bg-zinc-950">
+              <LoadingAnimation variant="spinner" label="Loading preview" />
+            </div>
+          }
+        >
+          <ReactPreview files={files} artifactId={artifactId} />
+        </Suspense>
+      ) : (
+        <iframe
+          title="Preview"
+          srcDoc={previewDoc}
+          sandbox="allow-scripts allow-forms allow-modals"
+          className="min-h-0 w-full flex-1 bg-white"
+        />
+      )
     ) : (
       <div className="flex min-h-0 flex-1 flex-col">
         {files.length > 1 && (
@@ -436,6 +454,5 @@ const Artifact = () => {
     </div>
   );
 };
-
 
 export default Artifact;

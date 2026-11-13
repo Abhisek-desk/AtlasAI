@@ -9,6 +9,17 @@ const conversationSchema = mongoose.Schema(
     userId: {
       type: String,
     },
+    // Pinned chats are listed under "Pinned chats" in the sidebar.
+    pinned: {
+      type: Boolean,
+      default: false,
+    },
+    // The project this chat was added to (null = not in a project).
+    projectId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Project",
+      default: null,
+    },
   },
   { timestamps: true },
 );
