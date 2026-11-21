@@ -35,7 +35,7 @@ import { setUserData } from "../redux/userSlice.js";
 
 const DEFAULT_TITLE = "New Chat";
 
-// Same limit as the upload middleware on the server.
+// Same limit as the upload middleware on the server
 const MAX_FILE_SIZE = 20 * 1024 * 1024;
 const MAX_TEXTAREA_HEIGHT = 192;
 
