@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 import api from "../../utils/axios.js";
+import { shrinkImage } from "../../utils/resizeImage.js";
 import { createConversation } from "../features/createConversation.js";
 import { getCurrentUser } from "../features/getCurrentUser.js";
 
@@ -131,7 +132,7 @@ const ChatInput = ({
     if (fileRef.current) fileRef.current.value = "";
   };
 
-  const handleFileChange = (event) => {
+    const handleFileChange = async (event) => {
     const file = event.target.files?.[0];
 
     if (!file) return;
@@ -149,8 +150,14 @@ const ChatInput = ({
     }
 
     dispatch(setMessageError(null));
-    setSelectedFile(file);
-    replacePreview(file);
+
+    // Big photos are shrunk first so they upload and get analysed faster.
+    const prepared = file.type.startsWith("image/")
+      ? await shrinkImage(file)
+      : file;
+
+    setSelectedFile(prepared);
+    replacePreview(prepared);
   };
 
   const handleStop = () => {

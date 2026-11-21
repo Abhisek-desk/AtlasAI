@@ -148,8 +148,7 @@ const isGeneratedFileHref = (href) => {
 
     return (
       GENERATED_FILE_PATH.test(url.pathname) ||
-      (CLOUD_FILE_HOST.test(url.hostname) &&
-        url.pathname.includes("/atlasai/"))
+      (CLOUD_FILE_HOST.test(url.hostname) && url.pathname.includes("/atlasai/"))
     );
   } catch {
     return GENERATED_FILE_PATH.test(href);
@@ -285,8 +284,7 @@ const GeneratedFileLink = ({ href, children }) => {
   const [error, setError] = useState("");
   const kind = getGeneratedFileKind(href);
   const filename = getFileNameFromHref(href);
-  const label =
-    kind === "pdf" ? "PDF" : kind === "ppt" ? "PowerPoint" : "File";
+  const label = kind === "pdf" ? "PDF" : kind === "ppt" ? "PowerPoint" : "File";
 
   const downloadFile = async () => {
     setDownloading(true);
@@ -898,13 +896,51 @@ const MessageList = ({
   onSuggestionClick,
 }) => {
   const dispatch = useDispatch();
-  const bottomRef = useRef(null);
+  const scrollRef = useRef(null);
+  const stickToBottomRef = useRef(true);
   const copyTimerRef = useRef(null);
   const [copiedId, setCopiedId] = useState(null);
 
+  // Scroll only the message list itself. (The browser's scrollIntoView also
+  // scrolls the page around it, which pushed the whole app up while typing.)
+  const scrollToBottom = useCallback((behavior = "smooth") => {
+    const element = scrollRef.current;
+
+    if (element) {
+      element.scrollTo({ top: element.scrollHeight, behavior });
+    }
+  }, []);
+
+  // Remember whether the user is at the bottom. If they scrolled up to read,
+  // new content must not yank them back down.
+  const handleScroll = () => {
+    const element = scrollRef.current;
+
+    if (!element) return;
+
+    stickToBottomRef.current =
+      element.scrollHeight - element.scrollTop - element.clientHeight < 120;
+  };
+
+  // Runs when a message is added or sending starts/stops, not on every render.
+  const lastMessage = messages[messages.length - 1];
+  const lastKey = `${messages.length}:${lastMessage?._id ?? lastMessage?.role ?? ""}`;
+
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [messages, sending]);
+    // The user just sent something: always show it.
+    if (lastMessage?.role === "user") stickToBottomRef.current = true;
+
+    if (stickToBottomRef.current) scrollToBottom("smooth");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lastKey, sending]);
+
+  // A conversation finished loading: start at the bottom.
+  useEffect(() => {
+    if (!loading) {
+      stickToBottomRef.current = true;
+      scrollToBottom("auto");
+    }
+  }, [loading, scrollToBottom]);
 
   useEffect(() => () => clearTimeout(copyTimerRef.current), []);
 
@@ -940,7 +976,11 @@ const MessageList = ({
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-6 sm:px-5 lg:px-8">
+    <div
+      ref={scrollRef}
+      onScroll={handleScroll}
+      className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden px-3 py-6 sm:px-5 lg:px-8"
+    >
       {messages.length === 0 ? (
         <div className="mx-auto flex min-h-full w-full max-w-4xl flex-col items-center justify-center px-2 py-8 text-center sm:px-4 sm:py-12">
           <h1 className="text-2xl font-semibold tracking-tight sm:text-3xl">
@@ -1009,8 +1049,6 @@ const MessageList = ({
               <p>{error}</p>
             </div>
           )}
-
-          <div ref={bottomRef} />
         </div>
       )}
     </div>
