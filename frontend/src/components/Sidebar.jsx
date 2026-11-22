@@ -319,7 +319,7 @@ const Sidebar = ({ mobileOpen = false, onMobileClose }) => {
       />
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 flex h-dvh w-[280px] max-w-[85vw] flex-col overflow-hidden border-r border-[#263247] bg-[#0F172A] transition-[translate,transform,width,visibility] duration-200 ease-out md:static md:z-20 md:max-w-none md:shrink-0 md:translate-x-0 md:shadow-none md:visible ${
+        className={`fixed inset-y-0 left-0 z-40 flex h-dvh w-[280px] max-w-[85vw] flex-col overflow-clip border-r border-[#263247] bg-[#0F172A] transition-[translate,transform,width,visibility] duration-200 ease-out md:static md:z-20 md:max-w-none md:shrink-0 md:translate-x-0 md:shadow-none md:visible ${
           mobileOpen
             ? "visible translate-x-0 shadow-2xl shadow-black/50"
             : "invisible -translate-x-full"

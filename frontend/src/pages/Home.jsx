@@ -1,5 +1,5 @@
 import { signInWithPopup } from "firebase/auth";
-import api,{ storeSession } from "../../utils/axios.js";
+import api, { storeSession } from "../../utils/axios.js";
 import { auth, googleProvider } from "../../utils/firebase.js";
 import { FcGoogle } from "react-icons/fc";
 import { useDispatch, useSelector } from "react-redux";
@@ -7,9 +7,7 @@ import { setUserData } from "../redux/userSlice.js";
 import Sidebar from "../components/Sidebar.jsx";
 import ChatArea from "../components/ChatArea.jsx";
 import Artifact from "../components/Artifact.jsx";
-// 1. first import line
-import { useCallback, useState } from "react";
-
+import { useCallback, useEffect, useState } from "react";
 
 const Home = () => {
   const { userData } = useSelector((state) => state.user);
@@ -18,7 +16,22 @@ const Home = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
   const openSidebar = useCallback(() => setMobileOpen(true), []);
   const closeSidebar = useCallback(() => setMobileOpen(false), []);
-    const handleLogin = async (token) => {
+
+  // Safety net: this app's window must never scroll. If anything scrolls it
+  // anyway (focus, an extension, a script), put it straight back.
+  useEffect(() => {
+    const reset = () => {
+      if (window.scrollY !== 0 || window.scrollX !== 0) {
+        window.scrollTo(0, 0);
+      }
+    };
+
+    window.addEventListener("scroll", reset, { passive: true });
+
+    return () => window.removeEventListener("scroll", reset);
+  }, []);
+
+  const handleLogin = async (token) => {
     try {
       const { data } = await api.post(
         "/api/auth/login",
@@ -57,10 +70,10 @@ const Home = () => {
   };
 
   return (
-    <div className="flex h-dvh w-full overflow-hidden bg-[#0d0f14] text-white">
+    <div className="flex h-dvh w-full overflow-clip bg-[#0d0f14] text-white">
       <Sidebar mobileOpen={mobileOpen} onMobileClose={closeSidebar} />
 
-      <div className="flex min-h-0 min-w-0 flex-1 overflow-hidden">
+      <div className="flex min-h-0 min-w-0 flex-1 overflow-clip">
         <ChatArea onOpenSidebar={openSidebar} />
         <Artifact />
       </div>
