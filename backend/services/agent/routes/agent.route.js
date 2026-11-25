@@ -1,11 +1,16 @@
 import express from "express"
 import { agent } from "../controllers/agent.controller.js"
+import { transcribe } from "../controllers/transcribe.controller.js"
 import multer from "../config/multer.js"
+import audioUpload from "../config/audioUpload.js"
 import { serveGeneratedFile } from "../utils/localFiles.js"
 
 const router = express.Router()
 
 router.post("/chat", multer.single("file"), agent)
+
+// Voice input: turns a short recording into text.
+router.post("/transcribe", audioUpload.single("audio"), transcribe)
 
 // Signed download links for generated PDFs, slides and images.
 router.get("/files/:filename", serveGeneratedFile)
@@ -20,6 +25,7 @@ router.use((err, req, res, next) => {
 
   const isUploadError =
     err?.name === "MulterError" ||
+    err?.isUpload === true ||
     err?.message === "Only PDF and Images are allowed"
 
   if (!isUploadError) return next(err)
@@ -27,7 +33,7 @@ router.use((err, req, res, next) => {
   const tooLarge = err?.code === "LIMIT_FILE_SIZE"
 
   return res.status(tooLarge ? 413 : 400).json({
-    message: tooLarge ? "File is too large (max 20 MB)" : err.message || "Upload failed",
+    message: tooLarge ? "File is too large" : err.message || "Upload failed",
   })
 })
 

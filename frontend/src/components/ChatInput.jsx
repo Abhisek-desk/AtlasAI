@@ -18,6 +18,8 @@ import {
 
 import api from "../../utils/axios.js";
 import { shrinkImage } from "../../utils/resizeImage.js";
+import { joinText } from "../../utils/speech.js";
+import { useSpeechInput } from "../hooks/useSpeechInput.js";
 import { createConversation } from "../features/createConversation.js";
 import { getCurrentUser } from "../features/getCurrentUser.js";
 
@@ -119,10 +121,33 @@ const ChatInput = ({
     [],
   );
 
-  // A prefilled suggestion can be several lines long.
+  // A prefilled suggestion or dictated text can be several lines long.
   useEffect(() => {
     growTextarea(textareaRef.current);
-  }, []);
+  }, [message]);
+
+  // Voice input. speechBaseRef is the text typed or dictated so far; the words
+  // still being spoken are shown after it until they are final.
+  const speechBaseRef = useRef(initialValue);
+
+  const speech = useSpeechInput({
+    onInterim: (text) => setMessage(joinText(speechBaseRef.current, text)),
+    onFinal: (text) => {
+      speechBaseRef.current = joinText(speechBaseRef.current, text);
+      setMessage(speechBaseRef.current);
+    },
+    onError: (text) => dispatch(setMessageError(text)),
+  });
+
+  const handleMic = () => {
+    if (speech.state === "idle") {
+      // Dictate after whatever is already typed.
+      speechBaseRef.current = message;
+      dispatch(setMessageError(null));
+    }
+
+    speech.toggle();
+  };
 
   const clearFile = () => {
     setSelectedFile(null);
@@ -132,7 +157,7 @@ const ChatInput = ({
     if (fileRef.current) fileRef.current.value = "";
   };
 
-    const handleFileChange = async (event) => {
+  const handleFileChange = async (event) => {
     const file = event.target.files?.[0];
 
     if (!file) return;
@@ -352,6 +377,13 @@ const ChatInput = ({
 
     if ((!prompt && !selectedFile) || disabled || sending) return;
 
+    // Wait for a recording that is still being transcribed.
+    if (speech.state === "transcribing") return;
+
+    // Sending ends dictation; the words heard so far are already in `prompt`.
+    if (speech.state === "listening") speech.cancel();
+
+    speechBaseRef.current = "";
     setMessage("");
 
     if (textareaRef.current) textareaRef.current.style.height = "auto";
@@ -370,6 +402,14 @@ const ChatInput = ({
       handleSubmit(event);
     }
   };
+
+  const micTitle = !speech.supported
+    ? "Voice input isn't supported in this browser"
+    : speech.state === "listening"
+      ? "Stop voice input"
+      : speech.state === "transcribing"
+        ? "Transcribing..."
+        : "Voice input";
 
   return (
     <div className="w-full px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-2 sm:px-5 sm:pb-4 lg:px-8">
@@ -442,6 +482,7 @@ const ChatInput = ({
           ref={textareaRef}
           value={message}
           onChange={(event) => {
+            speechBaseRef.current = event.target.value;
             setMessage(event.target.value);
             growTextarea(event.target);
           }}
@@ -477,16 +518,43 @@ const ChatInput = ({
 
             <button
               type="button"
-              title="Voice input"
-              aria-label="Voice input"
-              disabled={disabled}
-              className="rounded-lg p-2.5 text-gray-400 transition hover:bg-white/10 hover:text-white disabled:opacity-40 sm:p-2"
+              title={micTitle}
+              aria-label={micTitle}
+              aria-pressed={speech.state === "listening"}
+              disabled={
+                disabled || !speech.supported || speech.state === "transcribing"
+              }
+              onClick={handleMic}
+              className={`relative rounded-lg p-2.5 transition disabled:opacity-40 sm:p-2 ${
+                speech.state === "listening"
+                  ? "bg-red-500/15 text-red-400 hover:bg-red-500/25"
+                  : "text-gray-400 hover:bg-white/10 hover:text-white"
+              }`}
             >
-              <Mic size={18} />
+              {speech.state === "transcribing" ? (
+                <span className="block h-[18px] w-[18px] animate-spin rounded-full border-2 border-white/20 border-t-white" />
+              ) : (
+                <Mic size={18} />
+              )}
+
+              {speech.state === "listening" && (
+                <span className="absolute right-1.5 top-1.5 h-2 w-2 animate-pulse rounded-full bg-red-500" />
+              )}
             </button>
 
-            <span className="hidden text-xs text-gray-500 sm:inline">
-              Shift + Enter for a new line
+            <span
+              aria-live="polite"
+              className={`text-xs ${
+                speech.state === "idle"
+                  ? "hidden text-gray-500 sm:inline"
+                  : "inline text-red-300"
+              }`}
+            >
+              {speech.state === "listening"
+                ? "Listening... speak now"
+                : speech.state === "transcribing"
+                  ? "Transcribing..."
+                  : "Shift + Enter for a new line"}
             </span>
           </div>
 
