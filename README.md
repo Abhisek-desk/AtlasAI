@@ -183,6 +183,8 @@ If you'd like to contribute:
 
 GitHub: [@Abhisek-desk](https://github.com/Abhisek-desk)
 
+LinkedIn: https://www.linkedin.com/in/abhisek-mishra-31
+
 ---
 
 ## ⭐ Support
